@@ -1,0 +1,149 @@
+
+Big Data Benchmark Suite
+========================
+This suite has two parts
+  a) Cluster Validation 
+  b) BigData Benchmark TPCx-HS benchmark on lines of Teragen/TeraSort/TeraValidate along with HSDataCheck 
+     to cross check data being created on HDFS
+
+
+Pre-Requisites
+==============
+a) Cluster of Nodes Running Hadoop which is installed as per distribution requirements
+b) Cluster shell such as "clush" or "pdsh" on the admin or client node from where this Benchmark 
+   would be run. This is needed for the Cluster Validation utility
+c) Ensure CLASSPATH is set and includes HADOOP jar files if compiling the source code
+d) Certain Linux distributions require sudo to run commands querying OS configuration, 
+   if so then run command "export SUDO=sudo" on the node running the benchmark suite.
+   
+
+Running the Benchmark Suite
+===========================
+
+Where to run the benchmark
+---------------------------
+The benchmark has to be run from any client node which also supports clush (clustershell) 
+to all the nodes. Generally this is the Admin node which runs the Namenode.
+
+Setup
+------
+Benchmark_Parameters.sh contains the parameters to be used for a benchmark run. There are sections
+for common, MapReduce specific and Spark specific settings. In particular, be sure to set the
+HADOOP_USER and HDFS_USER appropriately.
+
+How to run the benchmark
+-------------------------
+#./TPCx-HS-master.sh -h
+
+usage: ./TPCx-HS-master.sh options
+
+This script runs the TPCx-HS (Hadoop Sort) BigData benchmark suite
+
+OPTIONS:
+   -h  Help
+   -m  Use the MapReduce framework
+   -s  Use the Spark framework
+   -g  <TPCx-HS Scale Factor option from below>
+       1   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
+       2   Run TPCx-HS for 1TB
+       3   Run TPCx-HS for 3TB
+       4   Run TPCx-HS for 10TB
+       5   Run TPCx-HS for 30TB
+       6   Run TPCx-HS for 100TB
+       7   Run TPCx-HS for 300TB
+       8   Run TPCx-HS for 1000TB
+       9   Run TPCx-HS for 3000TB
+       10  Run TPCx-HS for 10000TB
+
+   Example: ./TPCx-HS-master.sh -m -g 2
+
+
+Clush Installation
+===================
+
+Clush can be installed from EPEL. It is not part of Linux distribution.
+Through yum, you can install clush (clustershell) as follows. Please install this on the admin node from 
+which the tests will be run and which can access all nodes in the cluster
+
+a) yum-config-manager --add-repo http://dl.fedoraproject.org/pub/epel/6/x86_64/ 
+(or yum-config-manager --add-repo http://209.132.181.25/pub/epel/6/x86_64/ incase DNS is not set)
+b) yum --nogpgcheck install clustershell -y
+c)Include all the nodes in the cluster (e.g. if cluster nodes are rhel1 to rhel16 and rhel18 and rhel21)
+echo "all: rhel[1-16,18,21]" > /etc/clustershell/groups
+
+Clush Usage: We have setup "clush"
+
+Usage: clush <options> <shell-commands to run on nodes parallely>
+Options:
+-a: all nodes (rhel1-rhel16)
+-w: specified nodes (-w rhel2 or -w rhel[3-7,9,11-12])
+-b: Aggregate results while displaying (example below)
+-c: copy files
+
+[root@jumphost Microbench]# clush -a pwd  # Clush command
+rhel2: /root
+rhel1: /root
+rhel4: /root
+rhel3: /root
+rhel8: /root
+rhel7: /root
+rhel6: /root
+rhel9: /root
+rhel5: /root
+rhel13: /root
+rhel12: /root
+rhel11: /root
+rhel10: /root
+rhel16: /root
+rhel15: /root
+rhel14: /root
+
+[root@jumphost Microbench]# clush -a -b  pwd  # -b aggregate results/errors and show result condensed
+---------------
+rhel[1-16] (16)
+---------------
+/root
+
+clush –a –c <filename> --dest=</root/>   # Clush Copy
+
+
+Troubleshooting
+===============
+
+1.Error running the script (ClassNotFoundException)
+---------------------------------------------------
+This is primarily caused due to different Java Versions used by Jar and the java running on the hadoop nodes.
+In the zip file jars compiled, one for  Java 1.7. 
+
+
+Known Issues
+============
+
+1. A java.lang.IndexOutOfBoundsException error is thrown when running HSValidate 
+--------------------------------------------------------------------------------
+ 
+Cause
+HSValidate fails with a java.lang.IndexOutOfBoundsException error when running
+the TPCx-HS kit. This has been observed on CDH versions 5.5 and higher, but may 
+occur with other Hadoop distributions. This error is due to a known issue with 
+Hadoop's Map/Reduce framework as documented in MAPREDUCE-6635 
+(https://issues.apache.org/jira/browse/MAPREDUCE-6635).
+
+Workaround
+The following map/reduce combinations have shown to work with CDH 5.5 with the TPCx-HS kit:
+- 240/200
+- 768/720
+- 640/600
+- 768/768
+ 
+Note: not all combinations provided give the same performance.
+ 
+These values can be set using the NUM_MAPS and NUM_REDUCERS parameters in the
+BenchmarkParameters.sh file of the TPCx-HS kit.
+ 
+Other map/reduce combinations could also result in a successful HSValidate result
+but not all map/reduce combinations have been tested.
+ 
+Publishing
+Any map/reduce combination that does result in both HSValidate jobs completing
+successfully, can be used for publishing a TPCx-HS result.
