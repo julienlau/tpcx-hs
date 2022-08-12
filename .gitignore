@@ -6,6 +6,9 @@
 *.pyc
 *.pyo
 *.swp
+*.vscode
+*.bloop
+*.metals
 *~
 .java-version
 .DS_Store

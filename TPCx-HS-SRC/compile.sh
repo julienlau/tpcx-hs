@@ -27,19 +27,40 @@ fi
 if [ ! -d bin ] ;then
   mkdir bin
 fi
+HADOOPVERSION=2
 CLASSPATH=`hadoop classpath`
-javac -cp $CLASSPATH -d bin TPCx-HS-SRC-MR2/*.java
-#javac -cp $CLASSPATH -d bin TPCx-HS-SRC-MR1/*.java
-jar -cvf ./jars/TPCx-HS-master_MR1.jar -C bin .
+echo
+echo "Compiling TPCx-HS-SRC-MR${HADOOPVERSION}"
+echo
+javac -cp $CLASSPATH -d bin TPCx-HS-SRC-MR${HADOOPVERSION}/*.java
+jar -cvf ./jars/TPCx-HS-master_MR${HADOOPVERSION}.jar -C bin .
 rm -rf bin
 
 
 if [ ! -d bin ] ;then
   mkdir bin
 fi
-SPARK_CLASSPATH=/opt/cloudera/parcels/CDH/lib/spark/lib/*
-javac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH TPCx-HS-SRC-Spark1.6/src/main/java/*.java
-scalac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH:bin  TPCx-HS-SRC-Spark1.6/src/main/scala/*.scala TPCx-HS-SRC-Spark1.6/src/main/java/*.java
-jar -cvf ./jars/TPCx-HS-master_Spark.jar -C bin .
-rm -rf bin
+#SPARK_CLASSPATH=/opt/spark-1.6.3-bin-hadoop2.6/lib/*
+SPARK_CLASSPATH=/opt/spark/lib/*
+echo
+echo "Compiling TPCx-HS-SRC-Spark"
+echo
 
+if [[ ! -z $(which sbt 2>/dev/null) ]] ; then
+    echo
+    echo "Compiling FatJar with sbt for TPCx-HS-SRC-Spark"
+    echo
+    cd TPCx-HS-SRC-Spark && \
+    sbt assembly && \
+    cd .. && \
+    mv TPCx-HS-SRC-Spark/target/scala-*/TPCx-HS-master_Spark-assembly-*.jar jars/.
+else
+    javac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH TPCx-HS-SRC-Spark/src/main/java/*.java
+    scalac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH:bin TPCx-HS-SRC-Spark/src/main/scala/*.scala TPCx-HS-SRC-Spark/src/main/java/*.java
+    jar -cvf ./jars/TPCx-HS-master_Spark.jar -C bin .
+    rm -rf bin
+
+    echo
+    echo "Skipping FatJar for TPCx-HS-SRC-Spark"
+    echo
+fi

@@ -32,12 +32,13 @@
 #     ADVANCE NOTICE OF THE POSSIBILITY OF SUCH DAMAGES.
 #
 
+#set -x
 shopt -s expand_aliases
 source ./Benchmark_Parameters.sh
 
 VERSION=`cat ./VERSION.txt`
 MR_HSSORT_JAR="TPCx-HS-master_MR2.jar"
-SPARK_HSSORT_JAR="TPCx-HS-master_Spark.jar"
+SPARK_HSSORT_JAR="hdfs:///jars/TPCx-HS-master_Spark.jar"
 
 #script assumes clush or pdsh
 #unalias psh
@@ -70,8 +71,11 @@ OPTIONS:
    -h  Help
    -m  Use the MapReduce framework
    -s  Use the Spark framework
+   -q  Specify the ressource scheduler for Spark : Yarn (Default) or Mesos or Dcos
    -g  <TPCx-HS Scale Factor option from below>
-       1   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
+       -1  Run TPCx-HS for 1GB (For test purpose only, not a valid Scale Factor)
+       0   Run TPCx-HS for 30GB (For test purpose only, not a valid Scale Factor)
+       1   Run TPCx-HS for 300GB (For test purpose only, not a valid Scale Factor)
        2   Run TPCx-HS for 1TB
        3   Run TPCx-HS for 3TB
        4   Run TPCx-HS for 10TB
@@ -87,7 +91,7 @@ OPTIONS:
 EOF
 }
 
-while getopts "hmsg:" OPTION; do
+while getopts "hmsg:q:" OPTION; do
      case ${OPTION} in
          h) usage
              exit 1
@@ -98,42 +102,50 @@ while getopts "hmsg:" OPTION; do
          s) FRAMEWORK="Spark"
              HSSORT_JAR="$SPARK_HSSORT_JAR"
              ;;
+         q) SPARK_SCHEDULER=$OPTARG
+             ;;
          g)  sze=$OPTARG
- 			 case $sze in
-				1) hssize="1000000000"
-				   prefix="100GB"
-				     ;;
-				2) hssize="10000000000"
-				   prefix="1TB"
-					 ;;
-				3) hssize="30000000000"
-				   prefix="3TB"
-					 ;;	
-				4) hssize="100000000000"
-				   prefix="10TB"
-					 ;;	
-				5) hssize="300000000000"
-				   prefix="30TB"
-					 ;;	
-				6) hssize="1000000000000"
-				   prefix="100TB"
-					 ;;	
-				7) hssize="3000000000000"
-				   prefix="300TB"
-					 ;;	
-				8) hssize="10000000000000"
-				   prefix="1000TB"
-					 ;;	
-				9) hssize="30000000000000"
-				   prefix="3000TB"
-					 ;;	
-				10) hssize="100000000000000"
-				   prefix="10000TB"
-					 ;;						 					 					 
-				?) hssize="1000000000"
-				   prefix="100GB"
-				   ;;
-			 esac
+             case $sze in
+                 -1) hssize="10000000"
+                     prefix="1GB"
+                     ;;
+                 0) hssize="300000000"
+                     prefix="30GB"
+                     ;;
+                 1) hssize="3000000000"
+                     prefix="300GB"
+                     ;;
+                 2) hssize="10000000000"
+                     prefix="1TB"
+                     ;;
+                 3) hssize="30000000000"
+                     prefix="3TB"
+                     ;;        
+                 4) hssize="100000000000"
+                     prefix="10TB"
+                     ;;        
+                 5) hssize="300000000000"
+                     prefix="30TB"
+                     ;;        
+                 6) hssize="1000000000000"
+                     prefix="100TB"
+                     ;;        
+                 7) hssize="3000000000000"
+                     prefix="300TB"
+                     ;;        
+                 8) hssize="10000000000000"
+                     prefix="1000TB"
+                     ;;        
+                 9) hssize="30000000000000"
+                     prefix="3000TB"
+                     ;;        
+                 10) hssize="100000000000000"
+                     prefix="10000TB"
+                     ;;
+                 ?) hssize="1000000000"
+                     prefix="100GB"
+                     ;;
+             esac
              ;;
          ?)  echo -e "${red}Please choose a vlaid option${NC}"
              usage
@@ -144,7 +156,7 @@ done
 
 if [ -z "$FRAMEWORK" ]; then
     echo
-    echo "Please specify the framework to use (-m or -s)"
+    echo "Please specify the framework to use (-m or -s or -sd)"
     echo
     usage
     exit 2
@@ -156,13 +168,22 @@ elif [ -z "$hssize" ]; then
     exit 2
 fi
 
+if [[ -z $(which bc 2>/dev/null) ]] ; then
+    echo
+    echo "Please install bc"
+    echo
+    exit 2
+fi
 
 if [ -f ./TPCx-HS-result-"$prefix".log ]; then
    mv ./TPCx-HS-result-"$prefix".log ./TPCx-HS-result-"$prefix".log.`date +%Y%m%d%H%M%S`
 fi
 
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
-echo -e "${green}Running $prefix test${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
+echo -e "${green}Running $FRAMEWORK $prefix test${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
+if [ "$FRAMEWORK" = "Spark" ]; then
+    echo -e "${green}Using ${SPARK_SCHEDULER} for scheduling${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
+fi
 echo -e "${green}HSsize is $hssize${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}All Output will be logged to file ./TPCx-HS-result-$prefix.log${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
@@ -170,8 +191,7 @@ echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 ## CLUSTER VALIDATE SUITE ##
 
 
-if [ $CLUSTER_SHELL -eq 1 ]
-then
+if [[ ${CLUSTER_SHELL} -eq 1 ]] ; then
    echo -e "${green}$sep${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
    echo -e "${green} Running Cluster Validation Suite${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
    echo -e "${green}$sep${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
@@ -193,24 +213,36 @@ fi
 
 # Note for 1TB (1000000000000), input for HSgen => 10000000000 (so many 100 byte words)
 
-sudo -u $HDFS_USER hadoop fs -mkdir /user
-sudo -u $HDFS_USER hadoop fs -mkdir /user/"$HADOOP_USER"
-sudo -u $HDFS_USER hadoop fs -chown "$HADOOP_USER":"$HADOOP_USER" /user/"$HADOOP_USER"
-
-hadoop fs -ls "${HDFS_BENCHMARK_DIR}"
-if [ $? != 0 ] ;then
-  hadoop fs -mkdir "${HDFS_BENCHMARK_DIR}"
+if [[ "$USER" != "$HDFS_USER" ]]; then
+    sudo -u $HDFS_USER ${HADOOP_HOME}/bin/hadoop fs -mkdir /user                                             
+    sudo -u $HDFS_USER ${HADOOP_HOME}/bin/hadoop fs -mkdir /user/"$HADOOP_USER"                              
+    sudo -u $HDFS_USER ${HADOOP_HOME}/bin/hadoop fs -chown "$HADOOP_USER":"$HADOOP_USER" /user/"$HADOOP_USER"
+else
+    ${HADOOP_HOME}/bin/hadoop fs -mkdir /user                                             
+    ${HADOOP_HOME}/bin/hadoop fs -mkdir /user/"$HADOOP_USER"                              
+    ${HADOOP_HOME}/bin/hadoop fs -chown "$HADOOP_USER":"$HADOOP_USER" /user/"$HADOOP_USER"
 fi
 
-for i in `seq 1 2`;
+${HADOOP_HOME}/bin/hadoop fs -ls "${HDFS_BENCHMARK_DIR}"
+if [ $? != 0 ] ;then
+  ${HADOOP_HOME}/bin/hadoop fs -mkdir "${HDFS_BENCHMARK_DIR}"
+fi
+
+# Loop on the end to end test to ensure results are reproducible and stable
+# official benchmark : only 2 iterations
+for i in {1..2};
 do
 
 benchmark_result=1
 
 echo -e "${green}$sep${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}Deleting Previous Data - Start - `date`${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
-hadoop fs -rm -r -skipTrash /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/*
-sudo -u $HDFS_USER hadoop fs -expunge
+${HADOOP_HOME}/bin/hadoop fs -rm -r -skipTrash /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/*
+if [[ "$USER" != "$HDFS_USER" ]]; then
+    sudo -u $HDFS_USER ${HADOOP_HOME}/bin/hadoop fs -expunge
+else
+    ${HADOOP_HOME}/bin/hadoop fs -expunge
+fi
 sleep $SLEEP_BETWEEN_RUNS
 echo -e "${green}Deleting Previous Data - End - `date`${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}$sep${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
@@ -229,11 +261,23 @@ echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 mkdir -p ./logs
 if [ "$FRAMEWORK" = "MapReduce" ]; then
-    (time hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input) 2> >(tee ./logs/HSgen-time-run$i.txt) 
-else
-    (time spark-submit --class HSGen --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}" --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}" ${HSSORT_JAR} ${hssize} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input ) 2>&1 | (tee ./logs/HSgen-time-run${i}.txt)
+    echo ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input
+    (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input) 2> >(tee ./logs/HSgen-time-run$i.txt)
+    result=$?
+elif [ "$FRAMEWORK" = "Spark" ]; then
+    if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
+        echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.cores.max=${SPARK_CORES_MAX} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input"
+        jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.cores.max=${SPARK_CORES_MAX} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input" | grep "Submission id:" | awk '{print $NF}'`
+        result=$?
+        if [[ ! -z {jobid} ]]; then 
+            (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSgen-time-run${i}.txt)
+        fi
+    else
+        echo ${SPARK_HOME}/bin/spark-submit --class HSGen --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}" --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.cores.max=${SPARK_CORES_MAX}" --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} ${hssize} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input
+        (time ${SPARK_HOME}/bin/spark-submit --class HSGen --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}" --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.cores.max=${SPARK_CORES_MAX}" --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} ${hssize} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input ) 2>&1 | (tee ./logs/HSgen-time-run${i}.txt)
+        result=$?
+    fi
 fi
-result=$?
 
 cat ./logs/HSgen-time-run${i}.txt >> ./TPCx-HS-result-"$prefix".log
 
@@ -253,7 +297,8 @@ fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}Listing HSGen output ${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
-./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input | tee -a ./TPCx-HS-result-"$prefix".log
+./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input >> ./TPCx-HS-result-"$prefix".log
+if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
@@ -262,11 +307,20 @@ echo -e "${green}Starting HSSort Run $i (output being written to ./logs/HSsort-t
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 if [ "$FRAMEWORK" = "MapReduce" ]; then
-    (time hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2> >(tee ./logs/HSsort-time-run$i.txt) 
-else
-    (time spark-submit --class HSSort --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}"  --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}" ${HSSORT_JAR} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2>&1 | (tee ./logs/HSsort-time-run${i}.txt)
+    (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2> >(tee ./logs/HSsort-time-run$i.txt) 
+    result=$?
+elif [ "$FRAMEWORK" = "Spark" ]; then
+    if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
+        jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSSort --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.cores.max=${SPARK_CORES_MAX} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output" | grep "Submission id:" | awk '{print $NF}'`
+        result=$?
+        if [[ ! -z {jobid} ]]; then 
+            (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSsort-time-run${i}.txt)
+        fi
+    else
+        (time ${SPARK_HOME}/bin/spark-submit --class HSSort --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}"  --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.cores.max=${SPARK_CORES_MAX}" --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2>&1 | (tee ./logs/HSsort-time-run${i}.txt)
+        result=$?
+    fi
 fi
-result=$?
 
 cat ./logs/HSsort-time-run${i}.txt >> ./TPCx-HS-result-"$prefix".log
 
@@ -287,7 +341,8 @@ fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}Listing HSsort output ${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
-./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output | tee -a ./TPCx-HS-result-"$prefix".log
+./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output >>  ./TPCx-HS-result-"$prefix".log
+if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
@@ -296,11 +351,20 @@ echo -e "${green}Starting HSValidate ${NC}" | tee -a ./TPCx-HS-result-"$prefix".
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 if [ "$FRAMEWORK" = "MapReduce" ]; then
-    (time hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2> >(tee ./logs/HSvalidate-time-run$i.txt) 
-else
-    (time spark-submit --class HSValidate --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}" --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}" ${HSSORT_JAR} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2>&1 | (tee ./logs/HSvalidate-time-run${i}.txt)
+    (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2> >(tee ./logs/HSvalidate-time-run$i.txt) 
+    result=$?
+elif [ "$FRAMEWORK" = "Spark" ]; then
+    if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
+        jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSValidate --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.cores.max=${SPARK_CORES_MAX} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSValidate" | grep "Submission id:" | awk '{print $NF}'`
+        result=$?
+        if [[ ! -z {jobid} ]]; then 
+            (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSvalidate-time-run${i}.txt)
+        fi
+    else
+        (time ${SPARK_HOME}/bin/spark-submit --class HSValidate --deploy-mode ${SPARK_DEPLOY_MODE} --master ${SPARK_MASTER_URL} --conf "spark.driver.memory=${SPARK_DRIVER_MEMORY}" --conf "spark.executor.memory=${SPARK_EXECUTOR_MEMORY}" --conf "spark.executor.cores=${SPARK_EXECUTOR_CORES}" --conf "spark.cores.max=${SPARK_CORES_MAX}" --conf "spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM}" ${HSSORT_JAR} /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2>&1 | (tee ./logs/HSvalidate-time-run${i}.txt)
+        result=$?
+    fi
 fi
-result=$?
 
 cat ./logs/HSvalidate-time-run${i}.txt >> ./TPCx-HS-result-"$prefix".log
 
@@ -320,7 +384,8 @@ fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 echo -e "${green}Listing HSValidate output ${NC}" | tee -a ./TPCx-HS-result-"$prefix".log
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
-./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate | tee -a ./TPCx-HS-result-"$prefix".log
+./HSDataCheck.sh /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate >> ./TPCx-HS-result-"$prefix".log
+if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log
 
 echo "" | tee -a ./TPCx-HS-result-"$prefix".log

@@ -33,3 +33,7 @@
 #
 
 hdfs dfs -ls $1/*
+if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+hdfs dfs -ls $1/_SUCCESS
+if [[ $? -ne 0 ]]; then echo "ERROR ! $0 file _SUCCESS not found"; exit 9; fi
+

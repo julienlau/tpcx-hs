@@ -15,7 +15,9 @@ b) Cluster shell such as "clush" or "pdsh" on the admin or client node from wher
 c) Ensure CLASSPATH is set and includes HADOOP jar files if compiling the source code
 d) Certain Linux distributions require sudo to run commands querying OS configuration, 
    if so then run command "export SUDO=sudo" on the node running the benchmark suite.
-   
+e) Ensure "bc" shell calculator utility is installed.
+f) Ensure "zip unzip" is installed.
+
 
 Running the Benchmark Suite
 ===========================
@@ -43,6 +45,7 @@ OPTIONS:
    -h  Help
    -m  Use the MapReduce framework
    -s  Use the Spark framework
+   -q  Specify the ressource scheduler for Spark : Yarn (Default) or Mesos or Dcos
    -g  <TPCx-HS Scale Factor option from below>
        1   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
        2   Run TPCx-HS for 1TB
