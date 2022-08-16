@@ -35,40 +35,49 @@
 #-----------------------------------
 # Common Parameters
 #-----------------------------------
-HADOOP_USER=root # to name the directory /user/"$HADOOP_USER"
-HDFS_USER=root # to run hadoop admin command
-HDFS_BENCHMARK_DIR="TPCx-HS-benchmark"
-SLEEP_BETWEEN_RUNS=60
+# export HADOOP_USER=root # to name the directory /user/"$HADOOP_USER"
+# export HDFS_USER=root # to run hadoop admin command
+export HADOOP_USER=$USER # to name the directory /user/"$HADOOP_USER"
+export HDFS_USER=$USER # to run hadoop admin command
+export HDFS_BENCHMARK_DIR="TPCx-HS-benchmark"
+export SLEEP_BETWEEN_RUNS=20
+#-----------------------------------
+# Jar path
+#-----------------------------------
+export MR_HSSORT_JAR="TPCx-HS-master_MR2.jar"
+#export SPARK_HSSORT_JAR="hdfs:///jars/TPCx-HS-master_Spark.jar"
+export SPARK_HSSORT_JAR="http://192.168.1.3:18000/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
 
 #-----------------------------------
 # MapReduce Parameters
 #-----------------------------------
-NUM_MAPS=768
-NUM_REDUCERS=768
+export NUM_MAPS=768
+export NUM_REDUCERS=768
 
 
 #-----------------------------------
 # Spark Parameters
 #-----------------------------------
-SPARK_DRIVER_MEMORY=4g
-SPARK_EXECUTOR_MEMORY=20g
-SPARK_EXECUTOR_CORES=5
-SPARK_EXECUTOR_INSTANCES=16
+export SPARK_DRIVER_MEMORY=4g
+export SPARK_EXECUTOR_MEMORY=20g
+export SPARK_EXECUTOR_CORES=5
+export SPARK_EXECUTOR_INSTANCES=16
 # spark.default.parallelism should be set to nb_executors x nb_cores
-SPARK_DEFAULT_PARALLELISM=10000
-SPARK_CORES_MAX=80
+export SPARK_DEFAULT_PARALLELISM=10000
+export SPARK_CORES_MAX=80
 
 
-# DEPLOY_MODE one of 'cluster' or 'client'
-SPARK_DEPLOY_MODE="cluster"
+# DEPLOY_MODE one of 'cluster' or 'client'. Should always be cluster for k8s scheduler
+export SPARK_DEPLOY_MODE="cluster"
 
-SPARK_SCHEDULER="Yarn"
+export SPARK_SCHEDULER="Yarn"
 
 # Master URL for the cluster. spark://host:port, mesos://host:port, yarn, or local
-#SPARK_MASTER_URL="mesos://leader.mesos:5050"
-SPARK_MASTER_URL="spark://adm-tst-vm-1.local:7077"
+#export SPARK_MASTER_URL="mesos://leader.mesos:5050"
+#export SPARK_MASTER_URL="spark://adm-tst-vm-1.local:7077"
+export SPARK_MASTER_URL="k8s://https://192.168.122.61:6443"
 # URIS to hdfs-site.xml,core-site.xml
-# SPARK_MESOS_URIS="http://hdfs-5.novalocal/hdfs-config/hdfs-site.xml,http://hdfs-5.novalocal/hdfs-config/core-site.xml"
+# export SPARK_MESOS_URIS="http://hdfs-5.novalocal/hdfs-config/hdfs-site.xml,http://hdfs-5.novalocal/hdfs-config/core-site.xml"
 
 export HADOOP_HOME=/usr/local/hadoop
 if [[ ! -e ${HADOOP_HOME} ]]; then
@@ -101,3 +110,35 @@ export LD_LIBRARY_PATH=${MESOSPHERE_HOME}/lib/
 export DCOS=/usr/local/bin/dcos
 #export DCOS=/opt/dcos-cli/dcos
 export SPARK_DCOS_SERVICE_NAME="spark-1-6"
+
+# Only for spark on Kubernetes (scheduler=k8s)
+export SPARK_KUBE_NS=ns-spark
+export SPARK_KUBE_SA=sa-spark
+#export SPARK_KUBE_IMAGE=gcr.io/datamechanics/spark:platform-3.3-latest
+export SPARK_KUBE_IMAGE=pepitedata/spark-hadoop:3.3.0-3.3.3
+
+# Only for spark with S3 (minio) storage backend instead of HDFS
+export s3host=10.233.43.160
+export s3port=9000
+export miniourl=$s3host:$s3port
+# bucket name
+export s3bucket=mybucket
+# name of the tenant as configured in mc CLI (~/.mc/config.json)
+export s3tenant=local
+export s3ssl=false
+export s3ep=http://$miniourl
+export AWS_ACCESS_KEY_ID=X0Cm57RiQ0YQsIco
+export AWS_SECRET_ACCESS_KEY=Vo25o0iY8TCoPF0qvn17yCC3xQ6F20Gg
+
+# Configure Storage backend
+# HADOOP_DEFAULTFS must be resolved from the terminal running the TPCx script
+export HADOOP_DEFAULTFS=""
+# SPARK_DEFAULTFS must be resolved from inside the spark containers/process
+export SPARK_DEFAULTFS=""
+# with kubernetes different HADOOP url are used whether the client is external or internal to the kubernetes cluster
+# exemple with hdfs
+export HADOOP_DEFAULTFS=hdfs://u20-3:32664/
+export SPARK_DEFAULTFS=hdfs://hdfs-service.default.svc.cluster.local:9000/
+# exemple with s3a
+export HADOOP_DEFAULTFS=$s3tenant/$s3bucket
+export SPARK_DEFAULTFS=s3a://$miniourl

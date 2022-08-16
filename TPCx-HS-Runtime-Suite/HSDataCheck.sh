@@ -31,9 +31,17 @@
 #     RELATING TO THE WORK, WHETHER OR NOT SUCH AUTHOR OR DEVELOPER HAD
 #     ADVANCE NOTICE OF THE POSSIBILITY OF SUCH DAMAGES.
 #
-
-hdfs dfs -ls $1/*
-if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
-hdfs dfs -ls $1/_SUCCESS
-if [[ $? -ne 0 ]]; then echo "ERROR ! $0 file _SUCCESS not found"; exit 9; fi
-
+if [[ "${STORAGE_BACKEND}" == "hdfs" ]]; then
+    hdfs dfs ${hdfsopt} -ls $1/*
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+    hdfs dfs ${hdfsopt} -ls $1/_SUCCESS
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0 file _SUCCESS not found"; exit 9; fi
+elif [[ "${STORAGE_BACKEND}" == "s3a" ]]; then
+    mc ls --recursive $1
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+    mc ls $1/_SUCCESS
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+else
+    echo "$0 : STORAGE_BACKEND not supported ${STORAGE_BACKEND}"
+    exit 9
+fi

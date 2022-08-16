@@ -1,51 +1,66 @@
 name := "TPCx-HS-master_Spark"
 
-version := "2.1.0"
+version := "2.2.0"
 
-scalaVersion := "2.10.7"
-val sparkVersion = "1.6.3"
+scalaVersion := "2.12.16"
+val sparkVersion = "3.3.0"
+val hadoopVersion = "3.3.3"
 
-libraryDependencies += "org.apache.spark" % "spark-sql_2.10" % sparkVersion
+libraryDependencies += "org.apache.spark" %% "spark-core" % sparkVersion % "provided" excludeAll(ExclusionRule(organization = "com.amazonaws"))
+libraryDependencies += "org.apache.spark" %% "spark-sql" % sparkVersion % "provided" excludeAll(ExclusionRule(organization = "com.amazonaws"))
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % sparkVersion excludeAll(
-    ExclusionRule(organization = "com.twitter"),
-    ExclusionRule(organization = "org.apache.spark", name = "spark-network-common_2.10"),
-    ExclusionRule(organization = "org.apache.hadoop", name = "hadoop-client"),
-    ExclusionRule(organization = "org.apache.hadoop", name = "hadoop-hdfs"),
-    ExclusionRule(organization = "org.tachyonproject", name = "tachyon-client"),
-    ExclusionRule(organization = "commons-beanutils", name = "commons-beanutils"),
-    ExclusionRule(organization = "commons-collections", name = "commons-collections"),
-    ExclusionRule(organization = "org.apache.hadoop", name = "hadoop-yarn-api"),
-    ExclusionRule(organization = "org.apache.hadoop", name = "hadoop-yarn-common"),
-    ExclusionRule(organization = "org.apache.curator", name = "curator-recipes")
-  )
+// spark on S3
+// Be aware : Filesystems jars bundled in the user-jar/fatjar are not used.
+// Filesystems jars must present either in /lib or /plugins or /jars
+// to avoid error : java.lang.ClassNotFoundException: Class org.apache.hadoop.fs.s3a.S3AFileSystem
+libraryDependencies += "org.apache.hadoop" % "hadoop-client" % hadoopVersion % "provided"
+libraryDependencies += "org.apache.hadoop" % "hadoop-aws" % hadoopVersion % "provided"
 
-libraryDependencies += "org.apache.spark" %% "spark-network-common" % sparkVersion exclude("com.google.guava", "guava")
-libraryDependencies += "org.apache.spark" %% "spark-graphx" % sparkVersion
-libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging-slf4j" % "2.1.2"
-libraryDependencies += "org.apache.hadoop" % "hadoop-client" % "2.2.0" exclude("com.google.guava", "guava")
-libraryDependencies += "com.google.guava" % "guava" % "14.0.1"
-libraryDependencies += "org.json4s" %% "json4s-native" % "3.2.11"
-libraryDependencies += "org.json4s" %% "json4s-ext" % "3.2.11"
-libraryDependencies += "commons-codec" % "commons-codec" % "1.10"
+artifactName := { (sv: ScalaVersion, module: ModuleID, artifact: Artifact) =>
+  artifact.name + "_" + sv.binary + "-" + sparkVersion + "_" + module.revision + "." + artifact.extension
+}
+assemblyJarName in assembly := s"${name.value}_${scalaBinaryVersion.value}-${sparkVersion}_${version.value}.jar"
+
 
 test in assembly := {}
 
 assemblyMergeStrategy in assembly := {
-  case m if m.toLowerCase.startsWith("meta-inf")            => MergeStrategy.discard
-  case m if m.toLowerCase.endsWith("manifest.mf")           => MergeStrategy.discard
-  case m if m.toLowerCase.matches("log4j.properties")       => MergeStrategy.discard
-  case m if m.toLowerCase.matches("gelf-log4j.properties")  => MergeStrategy.discard
-  case PathList(ps @ _*) if ps.last endsWith ".html"        => MergeStrategy.first
-  case PathList("org", "apache", "spark", "unused", "UnusedStubClass.class", xs @ _*) => MergeStrategy.first
-  case PathList("javax", "inject", xs @ _*)                 => MergeStrategy.last
-  case PathList("javax", "servlet", xs @ _*)                => MergeStrategy.last
-  case PathList("javax", "activation", xs @ _*)             => MergeStrategy.last
-  case PathList("com", "esotericsoftware", xs @ _*)         => MergeStrategy.last
-  case PathList("com", "google", xs @ _*)                   => MergeStrategy.last
-  case PathList("commons-beanutils", xs @ _*)               => MergeStrategy.last
-  case PathList("org", "apache", xs @ _*)                   => MergeStrategy.last
-  case "application.conf"                                   => MergeStrategy.concat
+  case PathList("org", "apache", "parquet", xs @ _*)             => MergeStrategy.last
+  case PathList("com", "sun", "research", "ws", "wadl", xs @ _*) => MergeStrategy.last // jersey-server
+  case PathList("org","aopalliance", xs @ _*)                    => MergeStrategy.last
+  case PathList("javax", "inject", xs @ _*)                      => MergeStrategy.last
+  case PathList("javax", "servlet", xs @ _*)                     => MergeStrategy.last
+  case PathList("javax", "activation", xs @ _*)                  => MergeStrategy.last
+  case PathList("org", "apache", "hadoop", xs @ _*)              => MergeStrategy.last
+  case PathList("com", "fasterxml", "jackson", _, xs @ _*)       => MergeStrategy.last
+  case PathList("org", "apache", xs @ _*)                        => MergeStrategy.last
+  case PathList("com", "google", xs @ _*)                        => MergeStrategy.last
+  case PathList("com", "esotericsoftware", xs @ _*)              => MergeStrategy.last
+  case PathList("com", "codahale", xs @ _*)                      => MergeStrategy.last
+  case PathList("com", "yammer", xs @ _*)                        => MergeStrategy.last
+  case PathList("org", "slf4j", xs @ _*)                        => MergeStrategy.rename
+  case PathList("shaded", "parquet", "it", xs @ _*)              => MergeStrategy.first
+  case PathList("javax", xs @ _*)                                => MergeStrategy.first
+  case PathList("jersey", xs @ _*)                               => MergeStrategy.last
+  case "about.html"                                          => MergeStrategy.rename
+  case m if m.toLowerCase.startsWith("meta-inf")             => MergeStrategy.discard
+  case m if m.toLowerCase.endsWith("manifest.mf")            => MergeStrategy.discard
+  case m if m.toLowerCase.endsWith("notice")                 => MergeStrategy.discard
+  case m if m.toLowerCase.endsWith("license")                => MergeStrategy.discard
+  case m if m.toLowerCase.endsWith("public-suffix-list.txt") => MergeStrategy.first
+  case m if m.toLowerCase.startsWith("module-info")          => MergeStrategy.first
+  case m if m.toLowerCase.matches("properties.dtd")          => MergeStrategy.first
+  case m if m.toLowerCase.startsWith("propertylist")         => MergeStrategy.first
+  case m if m.toLowerCase.startsWith("webapps")              => MergeStrategy.first
+  case m if m.toLowerCase.matches("log4j.properties")        => MergeStrategy.last
+  case m if m.toLowerCase.matches("gelf-log4j.properties")   => MergeStrategy.last
+  case "plugin.properties"                                   => MergeStrategy.last
+  case PathList(ps @ _*) if ps.last endsWith ".conf"         => MergeStrategy.first
+  case PathList(ps @ _*) if ps.last endsWith ".html"         => MergeStrategy.last
+  case PathList(ps @ _*) if ps.last endsWith ".xml"          => MergeStrategy.last
+  case PathList(ps @ _*) if ps.last endsWith ".properties"   => MergeStrategy.last
+  case PathList(ps @ _*) if ps.last startsWith "aws-java-sdk"=> MergeStrategy.singleOrError
+  //case _ => MergeStrategy.singleOrError
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)

@@ -53,7 +53,7 @@ if [[ ! -z $(which sbt 2>/dev/null) ]] ; then
     cd TPCx-HS-SRC-Spark && \
     sbt assembly && \
     cd .. && \
-    mv TPCx-HS-SRC-Spark/target/scala-*/TPCx-HS-master_Spark-assembly-*.jar jars/.
+    mv TPCx-HS-SRC-Spark/target/scala-*/TPCx-HS-master_Spark_*.jar jars/.
 else
     javac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH TPCx-HS-SRC-Spark/src/main/java/*.java
     scalac -d bin -cp $CLASSPATH:$SPARK_CLASSPATH:bin TPCx-HS-SRC-Spark/src/main/scala/*.scala TPCx-HS-SRC-Spark/src/main/java/*.java
@@ -64,3 +64,5 @@ else
     echo "Skipping FatJar for TPCx-HS-SRC-Spark"
     echo
 fi
+
+ls -lart $(pwd)/jars

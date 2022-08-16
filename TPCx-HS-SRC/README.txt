@@ -4,7 +4,7 @@ Compiling the source code
 By running the following command the source files are compiled to create the TPCx-HS-master_MR2.jar
 and the TPCx-HS-master_Spark.jar in the jars directory:
 * You may need to edit variable SPARK_CLASSPATH
-* You may need scala 2.10.7 to compile Spark 1.6 application
+* You may need scala (2.10.7) to compile Spark application
 * ./compile.sh
 * When running Spark on DC/OS:
        - a fatjar is needed
@@ -18,3 +18,7 @@ Distribution
 The compiled jar files need to be moved into the TPCx-HS-Runtime-Suite directory for distribution.
 By running the following command, all the necessary docs and jars get bundled into a zip file:
 ./build.sh
+
+Docker image
+============
+A docker image for Spark + Hadoop that does not include tpcxhs application jar can be built using `TPCx-HS-SRC-Spark/Dockerfile`

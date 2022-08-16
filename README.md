@@ -21,9 +21,10 @@ The current TPCx-HS Version 2 specification can be found on the TPC Documentatio
 - compile the source: TPCx-HS-SRC/README.md 
 - make the jars (at least the spark jar) available using an hdfs, http server or S3/minio.
 - configure your running parameters in TPCx-HS-Runtime-Suite/Benchmark_Parameters.sh
-- run : `cd TPCx-HS-Runtime-Suite && ./TPCx-HS-master.sh -s -q mesos -g -1`
+- run : `cd TPCx-HS-Runtime-Suite && ./TPCx-HS-master.sh -s -q k8s -g -1`
 
 ## Releases
 
+- 2.2.0 : (not a TPC release) feat : add support for spark on kubernetes scheduler, spark v3 and custom hadoop defaultFS
 - 2.1.0 : (not a TPC release) add support for spark on mesos scheduler and spark v2
 - 2.0.3 : last release from TPC. Only support spark 1.6 using yarn scheduler.
