@@ -9,7 +9,7 @@ ENV SPARK_HOME /opt/spark
 RUN set -ex && \
     apt-get update && \
     ln -s /lib /lib64 && \
-    apt install -y bash tini libc6 libpam-modules krb5-user libnss3 procps net-tools curl && \
+    apt install -y bash tini libc6 libpam-modules krb5-user libnss3 procps net-tools curl python3 && \
     rm /bin/sh && \
     ln -sv /bin/bash /bin/sh && \
     echo "auth required pam_wheel.so use_uid" >> /etc/pam.d/su && \
@@ -97,11 +97,14 @@ RUN cp kubernetes/dockerfiles/spark/entrypoint.sh /opt/. \
 
 WORKDIR ${SPARK_HOME}/examples/jars
 RUN curl -sL --retry 3 \
-  https://github.com/julienlau/tpcx-hs/releases/download/v2.2.0/tpcx-hs-v2.2.0.tgz \
+  https://github.com/julienlau/tpcx-hs/releases/download/v2.2.0/v2.2.0.tgz \
   | gunzip \
-  | tar x -C ${SPARK_HOME}/examples/jars --strip-components=2 --wildcards --no-anchored '*TPCx-HS-master_Spark*.jar' && \
+  | tar x -C ${SPARK_HOME}/examples/jars --strip-components=3 --wildcards --no-anchored '*TPCx-HS-master_Spark*.jar' && \
   chown -R spark:spark . && \
   chmod -R go+rX .
+
+# this script should be launched after having copied your ssl certs in /usr/local/share/ca-certificates/
+COPY spark-env-ssl.sh /opt/.
 
 WORKDIR ${SPARK_HOME}/work-dir
 RUN chmod g+wX ${SPARK_HOME}/work-dir && chmod a+x /opt/decom.sh

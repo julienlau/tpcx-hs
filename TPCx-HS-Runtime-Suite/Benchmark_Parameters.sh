@@ -46,7 +46,8 @@ export SLEEP_BETWEEN_RUNS=20
 #-----------------------------------
 export MR_HSSORT_JAR="TPCx-HS-master_MR2.jar"
 #export SPARK_HSSORT_JAR="hdfs:///jars/TPCx-HS-master_Spark.jar"
-export SPARK_HSSORT_JAR="http://192.168.1.3:18000/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
+#export SPARK_HSSORT_JAR="http://192.168.1.3:18000/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
+export SPARK_HSSORT_JAR="local:///opt/spark/examples/jars/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
 
 #-----------------------------------
 # MapReduce Parameters
@@ -63,7 +64,8 @@ export SPARK_EXECUTOR_MEMORY=20g
 export SPARK_EXECUTOR_CORES=5
 export SPARK_EXECUTOR_INSTANCES=16
 # spark.default.parallelism should be set to nb_executors x nb_cores
-export SPARK_DEFAULT_PARALLELISM=10000
+#export SPARK_DEFAULT_PARALLELISM=1000 prefer using SPARK_TARGET_PARTITION_DISK_MB + heuristic depending on hssize
+export SPARK_TARGET_PARTITION_DISK_MB=128
 export SPARK_CORES_MAX=80
 
 

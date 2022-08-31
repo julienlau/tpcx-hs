@@ -73,7 +73,7 @@ OPTIONS:
    -g  <TPCx-HS Scale Factor option from below>
        -1  Run TPCx-HS for 1GB (For test purpose only, not a valid Scale Factor)
        0   Run TPCx-HS for 30GB (For test purpose only, not a valid Scale Factor)
-       1   Run TPCx-HS for 300GB (For test purpose only, not a valid Scale Factor)
+       1   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
        2   Run TPCx-HS for 1TB
        3   Run TPCx-HS for 3TB
        4   Run TPCx-HS for 10TB
@@ -120,8 +120,8 @@ while getopts "hmsb:g:q:" OPTION; do
                 0) hssize="300000000"
                    prefix="30GB"
                    ;;
-                1) hssize="3000000000"
-                   prefix="300GB"
+                1) hssize="1000000000"
+                   prefix="100GB"
                    ;;
                 2) hssize="10000000000"
                    prefix="1TB"
@@ -301,15 +301,26 @@ do
         (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input) 2> >(tee ./logs/HSgen-time-run$i.txt)
         result=$?
     elif [ "$FRAMEWORK" = "Spark" ]; then
-        export sparkopt="--conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM}"
+        if [[ -z ${SPARK_DEFAULT_PARALLELISM} && ! -z ${SPARK_TARGET_PARTITION_DISK_MB} ]] ; then
+            export SPARK_DEFAULT_PARALLELISM=`echo "$hssize *100/( ${SPARK_TARGET_PARTITION_DISK_MB} *1024*1024 )" | bc`
+            if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} ]]; then
+                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} / ${SPARK_EXECUTOR_INSTANCES}" | bc`
+                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} * ${SPARK_EXECUTOR_INSTANCES}" | bc`
+            fi
+        fi
+        if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} && ${SPARK_DEFAULT_PARALLELISM} -lt ${SPARK_EXECUTOR_INSTANCES} ]]; then
+            export SPARK_DEFAULT_PARALLELISM=${SPARK_EXECUTOR_INSTANCES}
+        fi
+        echo "SPARK_DEFAULT_PARALLELISM=${SPARK_DEFAULT_PARALLELISM}"
+        export sparkopt="--conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM}"
         export spark_fs_prefix=""
         if [[ ! -z ${SPARK_DEFAULTFS} ]]; then
             sparkopt="$sparkopt --conf spark.hadoop.fs.defaultFS=${SPARK_DEFAULTFS}"
         fi
         if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
             sparkopt="$sparkopt --conf spark.cores.max=${SPARK_CORES_MAX}" 
-            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input"
-            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input" | grep "Submission id:" | awk '{print $NF}'`
+            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input/"
+            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input/" | grep "Submission id:" | awk '{print $NF}'`
             result=$?
             if [[ ! -z {jobid} ]]; then 
                 (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSgen-time-run${i}.txt)
@@ -323,15 +334,19 @@ do
                 if [[ ! -z ${SPARK_KUBE_SA} ]]; then
                     sparkopt="$sparkopt --conf spark.kubernetes.authenticate.driver.serviceAccountName=${SPARK_KUBE_SA}"
                 fi
+                if [[ ! -z ${SPARK_KUBE_IMAGE_PULLSECRETS} ]]; then
+                    sparkopt="$sparkopt --conf spark.kubernetes.container.image.pullSecrets=${SPARK_KUBE_IMAGE_PULLSECRETS}"
+                fi
                 if [[ "${STORAGE_BACKEND}" == "s3a" ]]; then
-                    sparkopt="$sparkopt --conf spark.hadoop.fs.defaultFS=$SPARK_DEFAULTFS --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY  --conf spark.driver.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true --conf spark.executor.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl --conf spark.hadoop.fs.s3a.path.style.access=true"
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.defaultFS=$SPARK_DEFAULTFS --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl --conf spark.hadoop.fs.s3a.path.style.access=true"
+                    sparkopt=$sparkopt' --conf "spark.driver.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true" --conf "spark.executor.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true"'
                     spark_fs_prefix=s3a://$s3bucket
                 fi
             else
                 sparkopt="$sparkopt --master ${SPARK_MASTER_URL} --deploy-mode ${SPARK_DEPLOY_MODE}"
             fi
-            echo ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input
-            (time ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input ) 2>&1 | (tee ./logs/HSgen-time-run${i}.txt)
+            echo ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/
+            (time ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ) 2>&1 | (tee ./logs/HSgen-time-run${i}.txt)
             result=$?
         fi
     fi
@@ -364,20 +379,20 @@ do
     echo "" | tee -a ${logfile}
 
     if [ "$FRAMEWORK" = "MapReduce" ]; then
-        echo ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output
-        (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2> >(tee ./logs/HSsort-time-run$i.txt) 
+        echo ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/
+        (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSSort -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS  /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/) 2> >(tee ./logs/HSsort-time-run$i.txt) 
         result=$?
     elif [ "$FRAMEWORK" = "Spark" ]; then
         if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
-            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSSort ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output"
-            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSSort ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output" | grep "Submission id:" | awk '{print $NF}'`
+            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSSort ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input/ /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output/"
+            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSSort ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-input/ /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output/" | grep "Submission id:" | awk '{print $NF}'`
             result=$?
             if [[ ! -z {jobid} ]]; then 
                 (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSsort-time-run${i}.txt)
             fi
         else
-            echo ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output
-            (time ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output) 2>&1 | (tee ./logs/HSsort-time-run${i}.txt)
+            echo ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/
+            (time ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/) 2>&1 | (tee ./logs/HSsort-time-run${i}.txt)
             result=$?
         fi
     fi
@@ -411,20 +426,20 @@ do
     echo "" | tee -a ${logfile}
 
     if [ "$FRAMEWORK" = "MapReduce" ]; then
-        echo ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate
-        (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2> >(tee ./logs/HSvalidate-time-run$i.txt) 
+        echo ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate/
+        (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSValidate /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate/) 2> >(tee ./logs/HSvalidate-time-run$i.txt) 
         result=$?
     elif [ "$FRAMEWORK" = "Spark" ]; then
         if [ "${SPARK_SCHEDULER}" = "Dcos" ]; then
-            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSValidate ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSValidate"
-            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSValidate ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSValidate" | grep "Submission id:" | awk '{print $NF}'`
+            echo ${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSValidate ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output/ /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSValidate/"
+            jobid=`${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" run --submit-args="--class HSValidate ${sparkopt} ${HSSORT_JAR} /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSsort-output/ /user/${HADOOP_USER}/${HDFS_BENCHMARK_DIR}/HSValidate/" | grep "Submission id:" | awk '{print $NF}'`
             result=$?
             if [[ ! -z {jobid} ]]; then 
                 (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSvalidate-time-run${i}.txt)
             fi
         else
-            echo ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate
-            (time ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output /user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate) 2>&1 | (tee ./logs/HSvalidate-time-run${i}.txt)
+            echo ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate/
+            (time ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate/) 2>&1 | (tee ./logs/HSvalidate-time-run${i}.txt)
             result=$?
         fi
     fi
@@ -489,3 +504,5 @@ do
 
 
 done
+
+echo 'grep -e "Time taken by" -e "details: Total Time" -e "Total Size = " -e "Scale-Factor =" -e "TPCx-HS Performance Metric (HSph@SF):" -e "===============================================" TPCx-HS-result-*.log'
