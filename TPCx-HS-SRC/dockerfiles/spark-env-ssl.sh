@@ -24,10 +24,15 @@ if [[ ! -z `ls /usr/local/share/ca-certificates/ 2>/dev/null` ]] ; then
         for N in $(seq 0 $(($CERTS - 1))); do
             ALIAS="$(basename $PEM_FILE)-$N"
             echo "Adding to keystore with alias:$ALIAS"
+            # generates a keytool warning: use -cacerts option to access cacerts keystore
+            # cat /usr/local/share/ca-certificates/$PEM_FILE |
+            #     awk "n==$N { print }; /END CERTIFICATE/ { n++ }" |
+            #     keytool -noprompt -import -trustcacerts -alias $ALIAS -keystore $KEYSTORE -storepass $PASSWORD
+
+            # for JDK 9+ keytool option -cacerts is necessary
             cat /usr/local/share/ca-certificates/$PEM_FILE |
                 awk "n==$N { print }; /END CERTIFICATE/ { n++ }" |
-                keytool -noprompt -import -trustcacerts \
-                        -alias $ALIAS -keystore $KEYSTORE -storepass $PASSWORD
+                keytool -noprompt -import -trustcacerts -cacerts -alias $ALIAS -storepass $PASSWORD
         done
     done
     echo "export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt" >> ${SPARK_HOME}/conf/spark-env.sh

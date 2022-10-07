@@ -73,7 +73,7 @@ OPTIONS:
    -g  <TPCx-HS Scale Factor option from below>
        -1  Run TPCx-HS for 1GB (For test purpose only, not a valid Scale Factor)
        0   Run TPCx-HS for 30GB (For test purpose only, not a valid Scale Factor)
-       1   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
+       1   Run TPCx-HS for 300GB (For test purpose only, not a valid Scale Factor)
        2   Run TPCx-HS for 1TB
        3   Run TPCx-HS for 3TB
        4   Run TPCx-HS for 10TB
@@ -84,7 +84,7 @@ OPTIONS:
        9   Run TPCx-HS for 3000TB
        10  Run TPCx-HS for 10000TB
 
-   Example: $0 -m -g 0 -q k8s -b s3a
+   Example: $0 -s -g 0 -q k8s -b s3a
 
 EOF
 }
@@ -120,8 +120,8 @@ while getopts "hmsb:g:q:" OPTION; do
                 0) hssize="300000000"
                    prefix="30GB"
                    ;;
-                1) hssize="1000000000"
-                   prefix="100GB"
+                1) hssize="3000000000"
+                   prefix="300GB"
                    ;;
                 2) hssize="10000000000"
                    prefix="1TB"
@@ -259,8 +259,9 @@ fi
 
 # Loop on the end to end test to ensure results are reproducible and stable
 # official benchmark : only 2 iterations
-for i in {1..2};
-do
+i=0
+while [[ $i -lt $NBLOOP ]]; do
+    i=$(($i+1))
     set +e
     benchmark_result=1
 
@@ -301,18 +302,28 @@ do
         (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input) 2> >(tee ./logs/HSgen-time-run$i.txt)
         result=$?
     elif [ "$FRAMEWORK" = "Spark" ]; then
+        export sparkopt="--conf spark.ui.enabled=false --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}"
         if [[ -z ${SPARK_DEFAULT_PARALLELISM} && ! -z ${SPARK_TARGET_PARTITION_DISK_MB} ]] ; then
             export SPARK_DEFAULT_PARALLELISM=`echo "$hssize *100/( ${SPARK_TARGET_PARTITION_DISK_MB} *1024*1024 )" | bc`
-            if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} ]]; then
-                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} / ${SPARK_EXECUTOR_INSTANCES}" | bc`
-                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} * ${SPARK_EXECUTOR_INSTANCES}" | bc`
+            if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} && ! -z ${SPARK_EXECUTOR_CORES} ]]; then
+                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} / (${SPARK_EXECUTOR_INSTANCES} * ${SPARK_EXECUTOR_CORES})" | bc`
+                export SPARK_DEFAULT_PARALLELISM=`echo "${SPARK_DEFAULT_PARALLELISM} * ${SPARK_EXECUTOR_INSTANCES} * ${SPARK_EXECUTOR_CORES}" | bc`
+            else
+                echo "variables not set SPARK_EXECUTOR_INSTANCES , SPARK_EXECUTOR_CORES: ${SPARK_EXECUTOR_INSTANCES} , ${SPARK_EXECUTOR_CORES}"
+                exit 9
             fi
         fi
-        if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} && ${SPARK_DEFAULT_PARALLELISM} -lt ${SPARK_EXECUTOR_INSTANCES} ]]; then
-            export SPARK_DEFAULT_PARALLELISM=${SPARK_EXECUTOR_INSTANCES}
+        if [[ ${SPARK_DEFAULT_PARALLELISM} -lt $((${SPARK_EXECUTOR_INSTANCES} * ${SPARK_EXECUTOR_CORES})) ]]; then
+            export SPARK_DEFAULT_PARALLELISM=$((${SPARK_EXECUTOR_INSTANCES} * ${SPARK_EXECUTOR_CORES}))
         fi
-        echo "SPARK_DEFAULT_PARALLELISM=${SPARK_DEFAULT_PARALLELISM}"
-        export sparkopt="--conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES} --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM}"
+        export sparkopt="$sparkopt --conf spark.default.parallelism=${SPARK_DEFAULT_PARALLELISM}"
+        echo "SPARK_DEFAULT_PARALLELISM=${SPARK_DEFAULT_PARALLELISM}" | tee -a ${logfile}
+
+        # if HADOOP version > 3.3
+        # --conf spark.hadoop.fs.s3a.committer.staging.tmp.path=s3a://ap27661-etl-sandox.dev/staging/
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.committer.name=magic --conf spark.hadoop.fs.s3a.directory.marker.retention=keep --conf spark.hadoop.fs.s3a.bucket.all.committer.magic.enabled=true"
+        export sparkopt="$sparkopt --conf spark.hadoop.mapreduce.fileoutputcommitter.cleanup-failures.ignored=true --conf spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version=2 --conf spark.hadoop.mapreduce.fileoutputcommitter.marksuccessfuljobs=true"
+
         export spark_fs_prefix=""
         if [[ ! -z ${SPARK_DEFAULTFS} ]]; then
             sparkopt="$sparkopt --conf spark.hadoop.fs.defaultFS=${SPARK_DEFAULTFS}"
@@ -335,12 +346,27 @@ do
                     sparkopt="$sparkopt --conf spark.kubernetes.authenticate.driver.serviceAccountName=${SPARK_KUBE_SA}"
                 fi
                 if [[ ! -z ${SPARK_KUBE_IMAGE_PULLSECRETS} ]]; then
-                    sparkopt="$sparkopt --conf spark.kubernetes.container.image.pullSecrets=${SPARK_KUBE_IMAGE_PULLSECRETS}"
+                    sparkopt="$sparkopt --conf spark.kubernetes.container.image.pullSecrets=${SPARK_KUBE_IMAGE_PULLSECRETS} --conf spark.kubernetes.container.image.pullPolicy=Always"
                 fi
+                #sparkopt="$sparkopt --conf spark.executor.heartbeatInterval=20s --conf spark.network.timeoutInterval=120s --conf spark.network.timeout=120s"
                 if [[ "${STORAGE_BACKEND}" == "s3a" ]]; then
-                    sparkopt="$sparkopt --conf spark.hadoop.fs.defaultFS=$SPARK_DEFAULTFS --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl --conf spark.hadoop.fs.s3a.path.style.access=true"
+                    if [[ -z $s3address || -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY || -z $s3bucket ]]; then
+                        echo "ERROR ! empty var for s3"
+                        exit 227
+                    fi
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl --conf spark.hadoop.fs.s3a.path.style.access=true"
                     sparkopt=$sparkopt' --conf "spark.driver.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true" --conf "spark.executor.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true"'
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY"
                     spark_fs_prefix=s3a://$s3bucket
+                    if [[ ! -z ${SPARK_EVENT_LOGDIR} ]]; then
+                        if [[ `echo ${SPARK_EVENT_LOGDIR} | grep -c "^pvc"` -gt 0 ]]; then
+                            export sparkopt="$sparkopt --conf spark.eventLog.enabled=true --conf spark.eventLog.rolling.enabled=true --conf spark.eventLog.rolling.maxFileSize=512m"
+                            export sparkopt="$sparkopt --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
+                            export sparkopt="$sparkopt --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
+                        else
+                            export sparkopt="$sparkopt --conf spark.eventLog.enabled=true --conf spark.eventLog.rolling.enabled=true --conf spark.eventLog.rolling.maxFileSize=512m --conf spark.eventLog.dir=${SPARK_EVENT_LOGDIR}"
+                        fi
+                    fi
                 fi
             else
                 sparkopt="$sparkopt --master ${SPARK_MASTER_URL} --deploy-mode ${SPARK_DEPLOY_MODE}"
@@ -350,7 +376,10 @@ do
             result=$?
         fi
     fi
-
+    if [[ `grep -c -e ERROR -e Failed ./logs/HSgen-time-run${i}.txt` -gt 0 ]]; then
+        echo "there was an error during the run HSgen"
+        exit 227
+    fi
     cat ./logs/HSgen-time-run${i}.txt >> ${logfile}
 
     if [[ $result -ne 0 ]]
@@ -372,6 +401,10 @@ do
     ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input >> ${logfile}
     if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
     echo "" | tee -a ${logfile}
+
+    if [[ "${hack_hsgen_only}" == "1" ]]; then
+        exit 0
+    fi
 
     echo "" | tee -a ${logfile}
     echo "" | tee -a ${logfile}
@@ -396,7 +429,10 @@ do
             result=$?
         fi
     fi
-
+    if [[ `grep -c -e ERROR -e Failed ./logs/HSsort-time-run${i}.txt` -gt 0 ]]; then
+        echo "there was an error during the run HSsort"
+        exit 227
+    fi
     cat ./logs/HSsort-time-run${i}.txt >> ${logfile}
 
     if [ $result -ne 0 ]
@@ -443,7 +479,10 @@ do
             result=$?
         fi
     fi
-
+    if [[ `grep -c -e ERROR -e Failed ./logs/HSvalidate-time-run${i}.txt` -gt 0 ]]; then
+        echo "there was an error during the run HSvalidate"
+        exit 227
+    fi
     cat ./logs/HSvalidate-time-run${i}.txt >> ${logfile}
 
     if [ $result -ne 0 ]

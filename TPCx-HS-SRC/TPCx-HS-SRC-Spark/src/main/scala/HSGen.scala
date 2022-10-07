@@ -50,9 +50,6 @@ object HSGen {
       .setAppName(s"HSGen")
       .registerKryoClasses(Array(classOf[Text])).setAppName("HSGen")
     val sc = new SparkContext(conf)
-    // Be aware : may log secrets
-    println("Spark Configuration :")
-    sc.getConf.getAll.foreach(println)
 
     try {
 

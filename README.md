@@ -25,6 +25,7 @@ The current TPCx-HS Version 2 specification can be found on the TPC Documentatio
 
 ## Releases
 
+- 2.2.1 : (not a TPC release) improve shell for better error handling and auto-tuning + remove spark conf print in the logs
 - 2.2.0 : (not a TPC release) feat : add support for spark on kubernetes scheduler, spark v3 and custom hadoop defaultFS
 - 2.1.0 : (not a TPC release) add support for spark on mesos scheduler and spark v2
 - 2.0.3 : last release from TPC. Only support spark 1.6 using yarn scheduler.

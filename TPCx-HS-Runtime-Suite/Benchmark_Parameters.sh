@@ -40,7 +40,8 @@
 export HADOOP_USER=$USER # to name the directory /user/"$HADOOP_USER"
 export HDFS_USER=$USER # to run hadoop admin command
 export HDFS_BENCHMARK_DIR="TPCx-HS-benchmark"
-export SLEEP_BETWEEN_RUNS=20
+export SLEEP_BETWEEN_RUNS=1
+export NBLOOP=2
 #-----------------------------------
 # Jar path
 #-----------------------------------
@@ -59,20 +60,29 @@ export NUM_REDUCERS=768
 #-----------------------------------
 # Spark Parameters
 #-----------------------------------
-export SPARK_DRIVER_MEMORY=4g
-export SPARK_EXECUTOR_MEMORY=20g
-export SPARK_EXECUTOR_CORES=5
-export SPARK_EXECUTOR_INSTANCES=16
 # spark.default.parallelism should be set to nb_executors x nb_cores
 #export SPARK_DEFAULT_PARALLELISM=1000 prefer using SPARK_TARGET_PARTITION_DISK_MB + heuristic depending on hssize
-export SPARK_TARGET_PARTITION_DISK_MB=128
-export SPARK_CORES_MAX=80
+export SPARK_TARGET_PARTITION_DISK_MB=400
+
+export SPARK_DRIVER_MEMORY=1g
+export SPARK_EXECUTOR_MEMORY=14g
+export SPARK_EXECUTOR_CORES=5
+export SPARK_EXECUTOR_INSTANCES=6
+# HSgen only
+export hack_hsgen_only=0
+if [[ "${hack_hsgen_only}" == "1" ]]; then
+    export SPARK_EXECUTOR_MEMORY=4g
+    export SPARK_EXECUTOR_CORES=16
+    export SPARK_EXECUTOR_INSTANCES=6
+    export SPARK_DEFAULT_PARALLELISM=96
+fi
+export SPARK_CORES_MAX=80 # only for Dcos
 
 
 # DEPLOY_MODE one of 'cluster' or 'client'. Should always be cluster for k8s scheduler
 export SPARK_DEPLOY_MODE="cluster"
 
-export SPARK_SCHEDULER="Yarn"
+export SPARK_SCHEDULER="k8s"
 
 # Master URL for the cluster. spark://host:port, mesos://host:port, yarn, or local
 #export SPARK_MASTER_URL="mesos://leader.mesos:5050"
@@ -81,46 +91,34 @@ export SPARK_MASTER_URL="k8s://https://192.168.122.61:6443"
 # URIS to hdfs-site.xml,core-site.xml
 # export SPARK_MESOS_URIS="http://hdfs-5.novalocal/hdfs-config/hdfs-site.xml,http://hdfs-5.novalocal/hdfs-config/core-site.xml"
 
-export HADOOP_HOME=/usr/local/hadoop
+export HADOOP_HOME=~/hadoop
 if [[ ! -e ${HADOOP_HOME} ]]; then
     export HADOOP_HOME=/opt/hadoop
 fi
 export HADOOP_CONF_DIR=${HADOOP_HOME}/etc/hadoop
 export PATH=${PATH}:${HADOOP_HOME}/bin
 
-export SPARK_HOME=/usr/local/spark
+export SPARK_HOME=~/spark
 if [[ ! -e ${SPARK_HOME} ]]; then
     export SPARK_HOME=/opt/spark
+fi
+if [[ ! -e ${SPARK_HOME} ]]; then
+    export SPARK_HOME=/usr/local/spark
 fi
 export PATH=$PATH:${SPARK_HOME}/bin
 
 export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:/bin/java::")
 
-# Only for spark on mesos (not useful for spark on dcos)
-export LIBMESOS_BUNDLE_DOWNLOAD_URL="https://downloads.mesosphere.io/libmesos-bundle/libmesos-bundle-1.12.0.tar.gz"
-export BOOTSTRAP_DOWNLOAD_URL="https://downloads.mesosphere.com/dcos-commons/artifacts/0.55.2/bootstrap.zip"
-export MESOSPHERE_HOME="/opt/mesosphere"
-export BOOTSTRAP_BINARY="${MESOSPHERE_HOME}/bootstrap.zip"
-export BOOTSTRAP=${MESOSPHERE_HOME}/bootstrap
-export MESOS_NATIVE_JAVA_LIBRARY=${MESOSPHERE_HOME}/lib/libmesos.so
-export LD_LIBRARY_PATH=${MESOSPHERE_HOME}/lib/
-
-# Only for spark on DC/OS
-# Spark on DC/OS uses Mesos scheduler, but job submission must be handled through dcos cli 
-# otherwise the driver will be running on localhost
-# Warning on DCOS the Spark jar must be a fatjar !
-export DCOS=/usr/local/bin/dcos
-#export DCOS=/opt/dcos-cli/dcos
-export SPARK_DCOS_SERVICE_NAME="spark-1-6"
-
-# Only for spark on Kubernetes (scheduler=k8s)
+##############################################################################################
 export SPARK_KUBE_NS=ns-spark
 export SPARK_KUBE_SA=sa-spark
-#export SPARK_KUBE_IMAGE=gcr.io/datamechanics/spark:platform-3.3-latest
-export SPARK_KUBE_IMAGE=pepitedata/spark-hadoop:3.3.0-3.3.3
+#export SPARK_KUBE_IMAGE_PULLSECRETS=
+##############################################################################################
+
+export SPARK_KUBE_IMAGE=pepitedata/spark-hadoop:latest
 
 # Only for spark with S3 (minio) storage backend instead of HDFS
-export s3host=10.233.43.160
+export s3host=10.233.13.193
 export s3port=9000
 export miniourl=$s3host:$s3port
 # bucket name
@@ -128,9 +126,15 @@ export s3bucket=mybucket
 # name of the tenant as configured in mc CLI (~/.mc/config.json)
 export s3tenant=local
 export s3ssl=false
-export s3ep=http://$miniourl
+export s3address=http://$miniourl
 export AWS_ACCESS_KEY_ID=X0Cm57RiQ0YQsIco
 export AWS_SECRET_ACCESS_KEY=Vo25o0iY8TCoPF0qvn17yCC3xQ6F20Gg
+
+# bucket name
+export s3bucket=mybucket
+# bucket name for eventLog files
+export SPARK_EVENT_LOGDIR=s3a://spark-history-server/events
+#export SPARK_EVENT_LOGDIR=pvc-spark-share
 
 # Configure Storage backend
 # HADOOP_DEFAULTFS must be resolved from the terminal running the TPCx script
@@ -139,8 +143,9 @@ export HADOOP_DEFAULTFS=""
 export SPARK_DEFAULTFS=""
 # with kubernetes different HADOOP url are used whether the client is external or internal to the kubernetes cluster
 # exemple with hdfs
-export HADOOP_DEFAULTFS=hdfs://u20-3:32664/
-export SPARK_DEFAULTFS=hdfs://hdfs-service.default.svc.cluster.local:9000/
+#export HADOOP_DEFAULTFS=hdfs://u20-3:32664/
+#export SPARK_DEFAULTFS=hdfs://hdfs-service.default.svc.cluster.local:9000/
 # exemple with s3a
-export HADOOP_DEFAULTFS=$s3tenant/$s3bucket
-export SPARK_DEFAULTFS=s3a://$miniourl
+#export HADOOP_DEFAULTFS=s3a://$s3address/$s3bucket
+export HADOOP_DEFAULTFS=local/$s3bucket
+export SPARK_DEFAULTFS=s3a://$s3address

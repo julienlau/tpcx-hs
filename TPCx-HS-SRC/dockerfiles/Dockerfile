@@ -1,4 +1,4 @@
-# docker build --progress=plain -t pepitedata/spark-hadoop:3.3.0-3.3.3 -f Dockerfile .
+# docker build --progress=plain -t pepitedata/spark-hadoop:3.3.0-3.3.4 -f Dockerfile .
 FROM eclipse-temurin:11-jdk-focal
 
 ARG spark_uid=185
@@ -18,7 +18,7 @@ RUN set -ex && \
 
 #######################
 # HADOOP
-ENV HADOOP_VERSION 3.3.3
+ENV HADOOP_VERSION 3.3.4
 #----------------------- version to adjust
 ENV HADOOP_HOME /opt/hadoop
 RUN curl -sL --retry 3 \
@@ -39,6 +39,7 @@ ENV HADOOP_OPTIONAL_TOOLS "hadoop-aws"
 #######################
 # SPARK
 ENV SPARK_VERSION 3.3.0
+ENV SCALA_VER 2.12
 #----------------------- version to adjust
 ENV SPARK_PACKAGE spark-${SPARK_VERSION}-bin-without-hadoop
 ENV SPARK_HOME /opt/spark
@@ -49,6 +50,9 @@ RUN curl -sL --retry 3 \
  mv /opt/${SPARK_PACKAGE} ${SPARK_HOME} && \
  mkdir -p ${SPARK_HOME}/examples && \
  mkdir -p ${SPARK_HOME}/work-dir && \
+ curl -sL --retry 3 \
+    https://repo1.maven.org/maven2/org/apache/spark/spark-hadoop-cloud_${SCALA_VER}/${SPARK_VERSION}/spark-hadoop-cloud_${SCALA_VER}-${SPARK_VERSION}.jar -o ${SPARK_HOME}/jars/spark-hadoop-cloud_${SCALA_VER}-${SPARK_VERSION}.jar && \
+ cp ${HADOOP_HOME}/etc/hadoop/hadoop-metrics2.properties ${SPARK_HOME}/conf/ && \
  touch ${SPARK_HOME}/RELEASE && \
  chown -R spark:spark ${SPARK_HOME} && \
  chmod -R go+rX ${SPARK_HOME}
@@ -82,10 +86,14 @@ echo "spark.hadoop.fs.s3a.multipart.size 512M # size of each multipart chunk" >>
 echo "spark.hadoop.fs.s3a.multipart.threshold 512M # size before using multipart uploads" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
 echo "spark.hadoop.fs.s3a.socket.recv.buffer 65536 # read socket buffer hint" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
 echo "spark.hadoop.fs.s3a.socket.send.buffer 65536 # write socket buffer hint" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
-echo "spark.hadoop.fs.s3a.threads.max 2048 # maximum number of threads for S3A" >> ${SPARK_HOME}/conf/spark-defaults.conf
-#echo "#spark.hadoop.fs.s3a.buffer.dir ${hadoop.tmp.dir}/s3a" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
-#echo "#spark.hadoop.fs.s3a.committer.staging.tmp.path /tmp/staging" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
-#echo "#spark.hadoop.fs.s3a.impl org.apache.hadoop.spark.hadoop.fs.s3a.S3AFileSystem" >> ${SPARK_HOME}/conf/spark-defaults.conf
+echo "spark.hadoop.fs.s3a.threads.max 2048 # maximum number of threads for S3A" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+echo "spark.hadoop.fs.s3a.buffer.dir /tmp/s3a" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+echo "spark.hadoop.fs.s3a.committer.staging.tmp.path /tmp/staging" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+echo "spark.sql.parquet.output.committer.class org.apache.spark.internal.io.cloud.BindingParquetOutputCommitter" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+echo "spark.sql.sources.commitProtocolClass org.apache.spark.internal.io.cloud.PathOutputCommitProtocol" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+echo "spark.hadoop.mapreduce.outputcommitter.factory.scheme.s3a org.apache.hadoop.fs.s3a.commit.S3ACommitterFactory" >> ${SPARK_HOME}/conf/spark-defaults.conf
+# echo "spark.hadoop.fs.s3a.buffer.dir ${hadoop.tmp.dir}/s3a" >> ${SPARK_HOME}/conf/spark-defaults.conf && \
+# echo "#spark.hadoop.fs.s3a.impl org.apache.hadoop.spark.hadoop.fs.s3a.S3AFileSystem" >> ${SPARK_HOME}/conf/spark-defaults.conf
 
 ENV PYTHONHASHSEED 0
 ENV PYTHONIOENCODING UTF-8
@@ -99,15 +107,17 @@ WORKDIR ${SPARK_HOME}/examples/jars
 RUN curl -sL --retry 3 \
   https://github.com/julienlau/tpcx-hs/releases/download/v2.2.0/v2.2.0.tgz \
   | gunzip \
-  | tar x -C ${SPARK_HOME}/examples/jars --strip-components=3 --wildcards --no-anchored '*TPCx-HS-master_Spark*.jar' && \
-  chown -R spark:spark . && \
-  chmod -R go+rX .
+  | tar x -C ${SPARK_HOME}/examples/jars --strip-components=3 --wildcards --no-anchored '*TPCx-HS-master_Spark*.jar'
+RUN curl -sL --retry 3 \
+    https://github.com/julienlau/spark-data-generator/releases/download/1.0/parquet-data-generator_2.12-3.3.0_1.0.jar -o ./parquet-data-generator_2.12-3.3.0_1.0.jar
 
 # this script should be launched after having copied your ssl certs in /usr/local/share/ca-certificates/
 COPY spark-env-ssl.sh /opt/.
+RUN   chown -R spark:spark . && \
+      chmod -R go+rX .
 
 WORKDIR ${SPARK_HOME}/work-dir
-RUN chmod g+wX ${SPARK_HOME}/work-dir && chmod a+x /opt/decom.sh
+RUN mkdir -p /tmp/spark-events /tmp/staging /tmp/s3a && chmod -R go+rwX /tmp && chmod g+wX ${SPARK_HOME}/work-dir && chmod a+x /opt/decom.sh
 
 ENTRYPOINT [ "/opt/entrypoint.sh" ]
 
