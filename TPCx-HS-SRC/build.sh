@@ -48,7 +48,7 @@ STAGING_DIR=/tmp
 VERSION_FILE=../TPCx-HS-Runtime-Suite/VERSION.txt
 SPEC_DOC="../TPCx-HS Specification.docx"
 
-SPEC_VERSION=2.2.1
+SPEC_VERSION=2.3.0
 if [ -x /usr/bin/textutil ]; then
     SPEC_VERSION=`/usr/bin/textutil -convert txt -stdout "$SPEC_DOC" | fgrep Version | head -1 | cut -d' ' -f2`
 fi

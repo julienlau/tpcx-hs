@@ -1,6 +1,6 @@
 name := "TPCx-HS-master_Spark"
 
-version := "2.2.1"
+version := "2.3.0-beta"
 
 //scalaVersion := "2.11.12"
 scalaVersion := "2.12.17"
