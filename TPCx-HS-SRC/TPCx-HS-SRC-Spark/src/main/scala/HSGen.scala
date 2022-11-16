@@ -19,7 +19,7 @@
 import org.apache.hadoop.io.Text
 
 import org.apache.spark.{SparkConf, SparkContext}
-
+import org.apache.spark.sql.SparkSession
 
 object HSGen {
   def main(args: Array[String]) {
@@ -49,7 +49,9 @@ object HSGen {
     val conf = new SparkConf()
       .setAppName(s"HSGen")
       .registerKryoClasses(Array(classOf[Text])).setAppName("HSGen")
-    val sc = new SparkContext(conf)
+    val spark = SparkSession.builder.config(conf=conf).getOrCreate()
+    import spark.implicits._
+    val sc = spark.sparkContext
 
     try {
 
@@ -97,7 +99,9 @@ object HSGen {
         }
       }
 
-      dataset.saveAsNewAPIHadoopFile[HSOutputFormat](outputFile)
+      val df = dataset.toDF()
+      df.printSchema()
+      df.write.mode("overwrite").option("compression","none").parquet(outputFile)
     } catch{
       case e: Exception => println("Spark HSGen Exception" + e.getMessage() + e.printStackTrace())
     } finally {

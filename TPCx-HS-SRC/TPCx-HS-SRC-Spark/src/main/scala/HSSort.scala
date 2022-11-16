@@ -20,6 +20,7 @@ import com.google.common.primitives.UnsignedBytes
 
 import org.apache.hadoop.io.Text
 import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.sql.SparkSession
 
 /**
   * Created by cnarasim on 1/18/17.
@@ -46,24 +47,26 @@ object HSSort {
     }
     val conf = new SparkConf().setAppName("HSSort").
       registerKryoClasses(Array(classOf[Text])).setAppName("HSSort")
-
-    val sc = new SparkContext(conf)
+    val spark = SparkSession.builder.config(conf=conf).getOrCreate()
+    import spark.implicits._
+    val sc = spark.sparkContext
     try {
 
       // Process the command line arguments
       val inputFile = args(0)
       val outputFile = args(1)
 
+
       // Read and Sort and Write to a new file
-      val data = sc.newAPIHadoopFile(inputFile,
-        classOf[HadoopHSInputFormat],
-        classOf[Text],
-        classOf[Text])
-      data.partitionBy(new HSSortPartitioner(data.partitions.size))
+      val dataDF = spark.read.parquet(inputFile)
+      // Extract key from Row object
+      val dataRDD = dataDF.rdd.map( r => (r.getAs[Array[Byte]](0), r.getAs[Array[Byte]](1)) )
+      dataRDD.partitionBy(new HSSortPartitioner(dataRDD.partitions.size))
         .mapPartitions(iter => {
-          iter.toVector.sortBy(kv => kv._1.getBytes).iterator
+          iter.toVector.sortBy(kv => kv._1).iterator
         })
-        .saveAsNewAPIHadoopFile[HadoopHSOutputFormat](outputFile)
+      dataRDD.toDF()
+        .write.mode("overwrite").option("compression","none").parquet(outputFile)
     }catch{
       case e: Exception => println("Spark HSSort Exception" + e.getMessage() + e.printStackTrace())
     }finally {
