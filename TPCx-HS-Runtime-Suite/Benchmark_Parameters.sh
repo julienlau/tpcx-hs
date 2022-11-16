@@ -32,23 +32,36 @@
 #     ADVANCE NOTICE OF THE POSSIBILITY OF SUCH DAMAGES.
 #
 
+unalias exportz 2>/dev/null
+exportz()
+{
+    # avoid to export KV if it was already set before
+    key=`echo $1 | awk -F '=' '{print $1}'`
+    valOld=$(echo ${!key}) # bash only, not working in zsh
+    vals=$(echo $1 | awk -F '=' '{print $2}')
+    if [[ -z $valOld ]]; then
+        export $key=$vals
+    fi
+}
+
 #-----------------------------------
 # Common Parameters
 #-----------------------------------
 # export HADOOP_USER=root # to name the directory /user/"$HADOOP_USER"
 # export HDFS_USER=root # to run hadoop admin command
-export HADOOP_USER=$USER # to name the directory /user/"$HADOOP_USER"
+exportz HADOOP_USER=$USER # to name the directory /user/"$HADOOP_USER"
 export HDFS_USER=$USER # to run hadoop admin command
-export HDFS_BENCHMARK_DIR="TPCx-HS-benchmark"
+exportz HDFS_BENCHMARK_DIR="TPCx-HS-benchmark"
 export SLEEP_BETWEEN_RUNS=1
-export NBLOOP=2
+exportz NBLOOP=2
 #-----------------------------------
 # Jar path
 #-----------------------------------
 export MR_HSSORT_JAR="TPCx-HS-master_MR2.jar"
-#export SPARK_HSSORT_JAR="hdfs:///jars/TPCx-HS-master_Spark.jar"
-#export SPARK_HSSORT_JAR="http://192.168.1.3:18000/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
-export SPARK_HSSORT_JAR="local:///opt/spark/examples/jars/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
+exportz SPARK_HSSORT_JAR="local:///opt/spark/examples/jars/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0.jar"
+#exportz SPARK_HSSORT_JAR="s3a://spark-deps-dev/TPCx-HS-master_Spark_2.12-3.3.0_2.3.0.jar"
+#exportz SPARK_HSSORT_JAR="s3a://bu002i002901/applications/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0-beta.jar"
+#exportz SPARK_HSSORT_JAR="s3a://jars/TPCx-HS-master_Spark_2.12-3.3.0_2.2.0-beta.jar"
 
 #-----------------------------------
 # MapReduce Parameters
@@ -62,34 +75,27 @@ export NUM_REDUCERS=768
 #-----------------------------------
 # spark.default.parallelism should be set to nb_executors x nb_cores
 #export SPARK_DEFAULT_PARALLELISM=1000 prefer using SPARK_TARGET_PARTITION_DISK_MB + heuristic depending on hssize
-export SPARK_TARGET_PARTITION_DISK_MB=400
+exportz SPARK_TARGET_PARTITION_DISK_MB=100
 
-export SPARK_DRIVER_MEMORY=1g
-export SPARK_EXECUTOR_MEMORY=14g
-export SPARK_EXECUTOR_CORES=5
-export SPARK_EXECUTOR_INSTANCES=6
+exportz SPARK_DRIVER_MEMORY=1g
+exportz SPARK_DRIVER_CORES=1
+exportz SPARK_EXECUTOR_MEMORY=32g
+exportz SPARK_EXECUTOR_CORES=10
+exportz SPARK_EXECUTOR_INSTANCES=6
 # HSgen only
-export hack_hsgen_only=0
+exportz hack_hsgen_only=0
 if [[ "${hack_hsgen_only}" == "1" ]]; then
-    export SPARK_EXECUTOR_MEMORY=4g
-    export SPARK_EXECUTOR_CORES=16
-    export SPARK_EXECUTOR_INSTANCES=6
-    export SPARK_DEFAULT_PARALLELISM=96
+    echo "hack_hsgen_only = ${hack_hsgen_only}"
+    export SPARK_EXECUTOR_MEMORY=8g
+    #export SPARK_DEFAULT_PARALLELISM=$((${SPARK_EXECUTOR_CORES} * ${SPARK_EXECUTOR_INSTANCES}))
 fi
-export SPARK_CORES_MAX=80 # only for Dcos
+export SPARK_CORES_MAX=$((${SPARK_EXECUTOR_CORES} * ${SPARK_EXECUTOR_INSTANCES})) # only for Dcos
 
 
 # DEPLOY_MODE one of 'cluster' or 'client'. Should always be cluster for k8s scheduler
 export SPARK_DEPLOY_MODE="cluster"
 
 export SPARK_SCHEDULER="k8s"
-
-# Master URL for the cluster. spark://host:port, mesos://host:port, yarn, or local
-#export SPARK_MASTER_URL="mesos://leader.mesos:5050"
-#export SPARK_MASTER_URL="spark://adm-tst-vm-1.local:7077"
-export SPARK_MASTER_URL="k8s://https://192.168.122.61:6443"
-# URIS to hdfs-site.xml,core-site.xml
-# export SPARK_MESOS_URIS="http://hdfs-5.novalocal/hdfs-config/hdfs-site.xml,http://hdfs-5.novalocal/hdfs-config/core-site.xml"
 
 export HADOOP_HOME=~/hadoop
 if [[ ! -e ${HADOOP_HOME} ]]; then
@@ -109,6 +115,13 @@ export PATH=$PATH:${SPARK_HOME}/bin
 
 export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:/bin/java::")
 
+# Master URL for the cluster. spark://host:port, mesos://host:port, yarn, or local
+#export SPARK_MASTER_URL="mesos://leader.mesos:5050"
+#export SPARK_MASTER_URL="spark://adm-tst-vm-1.local:7077"
+export SPARK_MASTER_URL="k8s://https://192.168.122.61:6443"
+# URIS to hdfs-site.xml,core-site.xml
+# export SPARK_MESOS_URIS="http://hdfs-5.novalocal/hdfs-config/hdfs-site.xml,http://hdfs-5.novalocal/hdfs-config/core-site.xml"
+
 ##############################################################################################
 export SPARK_KUBE_NS=ns-spark
 export SPARK_KUBE_SA=sa-spark
@@ -117,24 +130,20 @@ export SPARK_KUBE_SA=sa-spark
 
 export SPARK_KUBE_IMAGE=pepitedata/spark-hadoop:latest
 
+#-----------------------------------
+# Storage backend Parameters
+#-----------------------------------
 # Only for spark with S3 (minio) storage backend instead of HDFS
-export s3host=10.233.13.193
+export s3host=10.233.13.193 # clusterIP
+#export s3host=my-minio.default.svc.cluster.local
 export s3port=9000
-export miniourl=$s3host:$s3port
+export s3address=$s3host:$s3port
 # bucket name
 export s3bucket=mybucket
-# name of the tenant as configured in mc CLI (~/.mc/config.json)
-export s3tenant=local
 export s3ssl=false
-export s3address=http://$miniourl
-export AWS_ACCESS_KEY_ID=X0Cm57RiQ0YQsIco
-export AWS_SECRET_ACCESS_KEY=Vo25o0iY8TCoPF0qvn17yCC3xQ6F20Gg
-
-# bucket name
-export s3bucket=mybucket
-# bucket name for eventLog files
-export SPARK_EVENT_LOGDIR=s3a://spark-history-server/events
-#export SPARK_EVENT_LOGDIR=pvc-spark-share
+export s3ep=http://$s3address
+export AWS_ACCESS_KEY_ID=g0VU8bPKlNTqP1Ol
+export AWS_SECRET_ACCESS_KEY=xLkU5jWq7Ptg8kSqEc4B6HwytdVt4YCn
 
 # Configure Storage backend
 # HADOOP_DEFAULTFS must be resolved from the terminal running the TPCx script
@@ -147,5 +156,5 @@ export SPARK_DEFAULTFS=""
 #export SPARK_DEFAULTFS=hdfs://hdfs-service.default.svc.cluster.local:9000/
 # exemple with s3a
 #export HADOOP_DEFAULTFS=s3a://$s3address/$s3bucket
-export HADOOP_DEFAULTFS=local/$s3bucket
+export HADOOP_DEFAULTFS=$s3tenant:$s3bucket
 export SPARK_DEFAULTFS=s3a://$s3address

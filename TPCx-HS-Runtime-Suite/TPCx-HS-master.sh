@@ -72,7 +72,7 @@ OPTIONS:
    -q  Specify the ressource scheduler for Spark : Yarn (Default) or Mesos or Dcos or k8s
    -g  <TPCx-HS Scale Factor option from below>
        -1  Run TPCx-HS for 1GB (For test purpose only, not a valid Scale Factor)
-       0   Run TPCx-HS for 30GB (For test purpose only, not a valid Scale Factor)
+       0   Run TPCx-HS for 100GB (For test purpose only, not a valid Scale Factor)
        1   Run TPCx-HS for 300GB (For test purpose only, not a valid Scale Factor)
        2   Run TPCx-HS for 1TB
        3   Run TPCx-HS for 3TB
@@ -84,7 +84,10 @@ OPTIONS:
        9   Run TPCx-HS for 3000TB
        10  Run TPCx-HS for 10000TB
 
-   Example: $0 -s -g 0 -q k8s -b s3a
+   Example: 
+    $0 -s -g 0 -q k8s -b s3a
+    $0 -s -g -1 -q dcos -b s3a
+    $0 -s -g -1 -q yarn -b hdfs
 
 EOF
 }
@@ -113,12 +116,13 @@ while getopts "hmsb:g:q:" OPTION; do
         q) SPARK_SCHEDULER=$OPTARG
            ;;
         g)  sze=$OPTARG
+        # NB : bytesize = 100 * hssize
             case $sze in
                 -1) hssize="10000000"
                     prefix="1GB"
                     ;;
-                0) hssize="300000000"
-                   prefix="30GB"
+                0) hssize="1000000000"
+                   prefix="100GB"
                    ;;
                 1) hssize="3000000000"
                    prefix="300GB"
@@ -206,6 +210,11 @@ echo "" | tee -a ${logfile}
 echo -e "${green}Running $FRAMEWORK $prefix test${NC}" | tee -a ${logfile}
 if [ "$FRAMEWORK" = "Spark" ]; then
     echo -e "${green}Using ${SPARK_SCHEDULER} for scheduling${NC}" | tee -a ${logfile}
+    echo -e "${green}Spark Master URL ${SPARK_MASTER_URL}${NC}" | tee -a ${logfile}
+    echo -e "${green}Memory of spark executor = ${SPARK_EXECUTOR_MEMORY}${NC}" | tee -a ${logfile}
+    echo -e "${green}Number of spark executors = ${SPARK_EXECUTOR_INSTANCES}${NC}" | tee -a ${logfile}
+    echo -e "${green}Number of spark core per executor = ${SPARK_EXECUTOR_CORES}${NC}" | tee -a ${logfile}
+    echo -e "${green}Number of spark core = $((1*${SPARK_EXECUTOR_CORES}*${SPARK_EXECUTOR_INSTANCES}))${NC}" | tee -a ${logfile}
 fi
 echo -e "${green}HSsize is $hssize${NC}" | tee -a ${logfile}
 echo -e "${green}All Output will be logged to file ./TPCx-HS-result-$prefix.log${NC}" | tee -a ${logfile}
@@ -268,15 +277,22 @@ while [[ $i -lt $NBLOOP ]]; do
     echo -e "${green}$sep${NC}" | tee -a ${logfile}
     echo -e "${green}Deleting Previous Data - Start - `date`${NC}" | tee -a ${logfile}
     if [[ "${STORAGE_BACKEND}" == "hdfs" ]]; then
+        echo "${HADOOP_HOME}/bin/hadoop fs ${hdfsopt} -rm -r -skipTrash /user/$HADOOP_USER/${HDFS_BENCHMARK_DIR}/*"
         ${HADOOP_HOME}/bin/hadoop fs ${hdfsopt} -rm -r -skipTrash /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/*
         if [[ "$USER" != "$HDFS_USER" ]]; then
             sudo -u $HDFS_USER ${HADOOP_HOME}/bin/hadoop fs ${hdfsopt} -expunge
         else
             ${HADOOP_HOME}/bin/hadoop fs ${hdfsopt} -expunge
         fi
-    else
+    elif [[ "${s3cli}" == "mc" ]] ; then
         mc rm --recursive --force ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"
+    else
+        echo "rclone ls ${HADOOP_DEFAULTFS}/user/$HADOOP_USER/${HDFS_BENCHMARK_DIR}"
+        # mc rm --recursive --force ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"
+        rclone ls ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"
+        rclone delete ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"
     fi
+    echo "datalake storage benchmark directory cleaned"
     echo "sleep $SLEEP_BETWEEN_RUNS"
     sleep $SLEEP_BETWEEN_RUNS
 
@@ -287,6 +303,7 @@ while [[ $i -lt $NBLOOP ]]; do
     echo "" | tee -a ${logfile}
 
     start=`date +%s`
+    date | tee -a ${logfile}
     echo -e "${green}$sep${NC}" | tee -a ${logfile}
     echo -e "${green} Running BigData TPCx-HS Benchmark Suite ($FRAMEWORK) - Run $i - Epoch $start ${NC}" | tee -a ${logfile}
     echo -e "${green} TPCx-HS Version $VERSION ${NC}" | tee -a ${logfile}
@@ -302,7 +319,7 @@ while [[ $i -lt $NBLOOP ]]; do
         (time ${HADOOP_HOME}/bin/hadoop jar $HSSORT_JAR HSGen -Dmapreduce.job.maps=$NUM_MAPS -Dmapreduce.job.reduces=$NUM_REDUCERS -Dmapred.map.tasks=$NUM_MAPS -Dmapred.reduce.tasks=$NUM_REDUCERS $hssize /user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input) 2> >(tee ./logs/HSgen-time-run$i.txt)
         result=$?
     elif [ "$FRAMEWORK" = "Spark" ]; then
-        export sparkopt="--conf spark.ui.enabled=false --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}"
+        export sparkopt="--conf spark.ui.enabled=false --conf spark.driver.cores=${SPARK_DRIVER_CORES} --conf spark.driver.memory=${SPARK_DRIVER_MEMORY} --conf spark.executor.memory=${SPARK_EXECUTOR_MEMORY} --conf spark.executor.cores=${SPARK_EXECUTOR_CORES} --conf spark.executor.instances=${SPARK_EXECUTOR_INSTANCES}"
         if [[ -z ${SPARK_DEFAULT_PARALLELISM} && ! -z ${SPARK_TARGET_PARTITION_DISK_MB} ]] ; then
             export SPARK_DEFAULT_PARALLELISM=`echo "$hssize *100/( ${SPARK_TARGET_PARTITION_DISK_MB} *1024*1024 )" | bc`
             if [[ ! -z ${SPARK_EXECUTOR_INSTANCES} && ! -z ${SPARK_EXECUTOR_CORES} ]]; then
@@ -320,9 +337,19 @@ while [[ $i -lt $NBLOOP ]]; do
         echo "SPARK_DEFAULT_PARALLELISM=${SPARK_DEFAULT_PARALLELISM}" | tee -a ${logfile}
 
         # if HADOOP version > 3.3
-        # --conf spark.hadoop.fs.s3a.committer.staging.tmp.path=s3a://ap27661-etl-sandox.dev/staging/
-        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.committer.name=magic --conf spark.hadoop.fs.s3a.directory.marker.retention=keep --conf spark.hadoop.fs.s3a.bucket.all.committer.magic.enabled=true"
+        export s3concurrency=$((4+2*${SPARK_EXECUTOR_CORES}))
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.committer.name=magic --conf spark.hadoop.fs.s3a.committer.threads=${s3concurrency} --conf spark.hadoop.fs.s3a.directory.marker.retention=keep --conf spark.hadoop.fs.s3a.bucket.all.committer.magic.enabled=true"
         export sparkopt="$sparkopt --conf spark.hadoop.mapreduce.fileoutputcommitter.cleanup-failures.ignored=true --conf spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version=2 --conf spark.hadoop.mapreduce.fileoutputcommitter.marksuccessfuljobs=true"
+        export sparkopt="$sparkopt --conf spark.sql.sources.commitProtocolClass=org.apache.spark.internal.io.cloud.PathOutputCommitProtocol --conf spark.sql.parquet.output.committer.class=org.apache.spark.internal.io.cloud.BindingParquetOutputCommitter"
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.threads.max=${s3concurrency} --conf spark.hadoop.fs.s3a.connection.maximum=${s3concurrency}"
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.socket.recv.buffer=65536 --conf spark.hadoop.fs.s3a.socket.send.buffer=65536"
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.max.total.tasks=2048"
+        # when local disk throughput is lower than S3 throughput
+        # will consume memory in a single stream up to the number of blocks set by fs.s3a.multipart.size * fs.s3a.fast.upload.active.blocks
+        # fs.s3a.block.size should be equal to spark.hadoop.fs.s3a.multipart.threshold
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.fast.upload.buffer=bytebuffer --conf spark.hadoop.fs.s3a.block.size=256M --conf spark.hadoop.fs.s3a.fast.upload.active.blocks=${SPARK_EXECUTOR_CORES}"
+        # fs.s3a.multipart.size should be equal to fs.s3a.multipart.threshold
+        export sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.multipart.size=256M --conf spark.hadoop.fs.s3a.multipart.threshold=256M"
 
         export spark_fs_prefix=""
         if [[ ! -z ${SPARK_DEFAULTFS} ]]; then
@@ -354,24 +381,34 @@ while [[ $i -lt $NBLOOP ]]; do
                         echo "ERROR ! empty var for s3"
                         exit 227
                     fi
-                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl --conf spark.hadoop.fs.s3a.path.style.access=true"
-                    sparkopt=$sparkopt' --conf "spark.driver.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true" --conf "spark.executor.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true"'
-                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY"
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.endpoint=$s3ep --conf spark.hadoop.fs.s3a.connection.ssl.enabled=$s3ssl"
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.bucket.$s3bucket.endpoint=$s3ep"
+                    if [[ $(echo $s3address | grep -c "cos-admin-global.svc") -gt 0 || $(echo $s3address | grep -c "cloud-object-storage.appdomain.cloud") -gt 0 ]]; then
+                        # IBM COS
+                        sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.path.style.access=false"
+                    else
+                        sparkopt=$sparkopt' --conf "spark.driver.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true" --conf "spark.executor.extraJavaOptions=-Dcom.amazonaws.services.s3.enableV4=true"'
+                        sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.path.style.access=true"
+                    fi
+
                     spark_fs_prefix=s3a://$s3bucket
                     if [[ ! -z ${SPARK_EVENT_LOGDIR} ]]; then
-                        if [[ `echo ${SPARK_EVENT_LOGDIR} | grep -c "^pvc"` -gt 0 ]]; then
+                        if [[ `echo ${SPARK_EVENT_LOGDIR} | grep -c "^pvc"` -gt 0 || `echo ${SPARK_EVENT_LOGDIR} | grep -c "pvc$"` -gt 0 ]]; then
                             export sparkopt="$sparkopt --conf spark.eventLog.enabled=true --conf spark.eventLog.rolling.enabled=true --conf spark.eventLog.rolling.maxFileSize=512m"
-                            export sparkopt="$sparkopt --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
-                            export sparkopt="$sparkopt --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
+                            export sparkopt="$sparkopt --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp/spark-events --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.driver.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
+                            export sparkopt="$sparkopt --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.path=/tmp/spark-events --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.mount.readOnly=false --conf spark.kubernetes.executor.volumes.persistentVolumeClaim.log-vol.options.claimName=${SPARK_EVENT_LOGDIR}"
                         else
                             export sparkopt="$sparkopt --conf spark.eventLog.enabled=true --conf spark.eventLog.rolling.enabled=true --conf spark.eventLog.rolling.maxFileSize=512m --conf spark.eventLog.dir=${SPARK_EVENT_LOGDIR}"
                         fi
                     fi
+                    echo "spark options used : $sparkopt" | tee -a ${logfile}
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY"
+                    sparkopt="$sparkopt --conf spark.hadoop.fs.s3a.bucket.$s3bucket.access.key=$AWS_ACCESS_KEY_ID --conf spark.hadoop.fs.s3a.bucket.$s3bucket.secret.key=$AWS_SECRET_ACCESS_KEY"
                 fi
             else
                 sparkopt="$sparkopt --master ${SPARK_MASTER_URL} --deploy-mode ${SPARK_DEPLOY_MODE}"
             fi
-            echo ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/
+            echo ${SPARK_HOME}/bin/spark-submit --class HSGen \${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/
             (time ${SPARK_HOME}/bin/spark-submit --class HSGen ${sparkopt} ${HSSORT_JAR} ${hssize} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ) 2>&1 | (tee ./logs/HSgen-time-run${i}.txt)
             result=$?
         fi
@@ -390,7 +427,11 @@ while [[ $i -lt $NBLOOP ]]; do
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo -e "${green}======== HSgen Result SUCCESS ========${NC}" | tee -a ${logfile}
-        echo -e "${green}======== Time taken by HSGen = `grep real ./logs/HSgen-time-run$i.txt | awk '{print $2}'`====${NC}" | tee -a ${logfile}
+        timereal=`grep real ./logs/HSgen-time-run$i.txt | awk '{print $2}'`
+        timesec=`echo ${timereal} | tr -s 'sm' ' ' | awk '{a=$1*60+$2}END{print a}'`
+        throughput=`echo ${hssize} ${timesec} | awk '{a=$1*100/1000/1000/1000/$2}END{print a}'`
+        echo -e "${green}======== Time taken by HSGen = ${timereal} = ${timesec} ====${NC}" | tee -a ${logfile}
+        echo -e "${green}======== Throughput of HSGen = ${throughput} GB/s ====${NC}" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
     fi
@@ -398,14 +439,11 @@ while [[ $i -lt $NBLOOP ]]; do
     echo "" | tee -a ${logfile}
     echo -e "${green}Listing HSGen output ${NC}" | tee -a ${logfile}
     echo "" | tee -a ${logfile}
-    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input >> ${logfile}
+    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-input
     if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
     echo "" | tee -a ${logfile}
 
-    if [[ "${hack_hsgen_only}" == "1" ]]; then
-        exit 0
-    fi
-
+    if [[ "${hack_hsgen_only}" != "1" ]]; then
     echo "" | tee -a ${logfile}
     echo "" | tee -a ${logfile}
     echo -e "${green}Starting HSSort Run $i (output being written to ./logs/HSsort-time-run$i.txt)${NC}" | tee -a ${logfile}
@@ -424,7 +462,7 @@ while [[ $i -lt $NBLOOP ]]; do
                 (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSsort-time-run${i}.txt)
             fi
         else
-            echo ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/
+            echo ${SPARK_HOME}/bin/spark-submit --class HSSort \${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/
             (time ${SPARK_HOME}/bin/spark-submit --class HSSort ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-input/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/) 2>&1 | (tee ./logs/HSsort-time-run${i}.txt)
             result=$?
         fi
@@ -443,7 +481,11 @@ while [[ $i -lt $NBLOOP ]]; do
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo -e "${green}======== HSsort Result SUCCESS =============${NC}" | tee -a ${logfile}
-        echo -e "${green}======== Time taken by HSSort = `grep real ./logs/HSsort-time-run$i.txt | awk '{print $2}'`====${NC}" | tee -a ${logfile}
+        timereal=`grep real ./logs/HSsort-time-run$i.txt | awk '{print $2}'`
+        timesec=`echo ${timereal} | tr -s 'sm' ' ' | awk '{a=$1*60+$2}END{print a}'`
+        throughput=`echo ${hssize} ${timesec} | awk '{a=$1*100/1000/1000/1000/$2}END{print a}'`
+        echo -e "${green}======== Time taken by HSSort = ${timereal} = ${timesec} ====${NC}" | tee -a ${logfile}
+        echo -e "${green}======== Throughput of HSSort = ${throughput} GB/s ====${NC}" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
     fi
@@ -452,7 +494,7 @@ while [[ $i -lt $NBLOOP ]]; do
     echo "" | tee -a ${logfile}
     echo -e "${green}Listing HSsort output ${NC}" | tee -a ${logfile}
     echo "" | tee -a ${logfile}
-    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output >>  ${logfile}
+    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSsort-output
     if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
     echo "" | tee -a ${logfile}
 
@@ -474,7 +516,7 @@ while [[ $i -lt $NBLOOP ]]; do
                 (time while [[ `${DCOS} spark --name="${SPARK_DCOS_SERVICE_NAME}" status ${jobid} | grep '"driverState"' | grep -c '"FINISHED"'` -eq 0 ]]; do printf '.'; sleep 5; done) | (tee ./logs/HSvalidate-time-run${i}.txt)
             fi
         else
-            echo ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate/
+            echo ${SPARK_HOME}/bin/spark-submit --class HSValidate \${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate/
             (time ${SPARK_HOME}/bin/spark-submit --class HSValidate ${sparkopt} ${HSSORT_JAR} ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSsort-output/ ${spark_fs_prefix}/user/"${HADOOP_USER}"/"${HDFS_BENCHMARK_DIR}"/HSValidate/) 2>&1 | (tee ./logs/HSvalidate-time-run${i}.txt)
             result=$?
         fi
@@ -487,13 +529,17 @@ while [[ $i -lt $NBLOOP ]]; do
 
     if [ $result -ne 0 ]
     then
-        echo -e "${red}======== HSsort Result FAILURE ========${NC}" | tee -a ${logfile}
+        echo -e "${red}======== HSValidate Result FAILURE ========${NC}" | tee -a ${logfile}
         benchmark_result=0
     else
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo -e "${green}======== HSValidate Result SUCCESS =============${NC}" | tee -a ${logfile}
-        echo -e "${green}======== Time taken by HSValidate = `grep real ./logs/HSvalidate-time-run$i.txt | awk '{print $2}'`====${NC}" | tee -a ${logfile}
+        timereal=`grep real ./logs/HSvalidate-time-run$i.txt | awk '{print $2}'`
+        timesec=`echo ${timereal} | tr -s 'sm' ' ' | awk '{a=$1*60+$2}END{print a}'`
+        throughput=`echo ${hssize} ${timesec} | awk '{a=$1*100/1000/1000/1000/$2}END{print a}'`
+        echo -e "${green}======== Time taken by HSValidate = ${timereal} = ${timesec} ====${NC}" | tee -a ${logfile}
+        echo -e "${green}======== Throughput of HSValidate = ${throughput} GB/s ====${NC}" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
     fi
@@ -501,7 +547,7 @@ while [[ $i -lt $NBLOOP ]]; do
     echo "" | tee -a ${logfile}
     echo -e "${green}Listing HSValidate output ${NC}" | tee -a ${logfile}
     echo "" | tee -a ${logfile}
-    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate >> ${logfile}
+    ./HSDataCheck.sh ${HADOOP_DEFAULTFS}/user/"$HADOOP_USER"/"${HDFS_BENCHMARK_DIR}"/HSValidate
     if [[ $? -ne 0 ]]; then echo "ERROR !"; exit 9; fi
     echo "" | tee -a ${logfile}
 
@@ -509,6 +555,8 @@ while [[ $i -lt $NBLOOP ]]; do
     echo "" | tee -a ${logfile}
 
     end=`date +%s`
+    date | tee -a ${logfile}
+    set +e
 
     if [[ ${benchmark_result} -eq 1 ]]; then
         total_time=`expr $end - $start`
@@ -519,7 +567,7 @@ while [[ $i -lt $NBLOOP ]]; do
         echo -e "${green}$sep============${NC}" | tee -a ${logfile}
         echo "" | tee -a ${logfile}
         echo -e "${green}md5sum of core components:${NC}" | tee -a ${logfile}
-        md5sum ./TPCx-HS-master.sh ./$HSSORT_JAR ./HSDataCheck.sh ./BigData_cluster_validate_suite.sh | tee -a ${logfile}
+        md5sum ./TPCx-HS-master.sh ./$HSSORT_JAR ./HSDataCheck.sh ./BigData_cluster_validate_suite.sh
         echo "" | tee -a ${logfile}
 
         echo -e "${green}$sep============${NC}" | tee -a ${logfile}
@@ -540,8 +588,11 @@ while [[ $i -lt $NBLOOP ]]; do
         echo -e "${red}$sep${NC}" | tee -a ${logfile}
 
     fi
+    fi
 
 
 done
 
-echo 'grep -e "Time taken by" -e "details: Total Time" -e "Total Size = " -e "Scale-Factor =" -e "TPCx-HS Performance Metric (HSph@SF):" -e "===============================================" TPCx-HS-result-*.log'
+# echo "grep -e 'Time taken by HSGen' TPCx-HS-result-*.log | awk '{print \$NF}' | awk -F '=' '{print \$1}' | tr -s 'sm' ' '| awk '{a=$1*60+$2}END{print a}'"
+echo 'grep -e "Time taken by HS" -e "Throughput of HS" -e "details: Total Time" -e "Total Size = " -e "Scale-Factor =" -e "TPCx-HS Performance Metric (HSph@SF):" -e "===============================================" TPCx-HS-result-*.log'
+# export hack_hsgen_only=1; export SPARK_EXECUTOR_CORES=6; for SPARK_EXECUTOR_INSTANCES in 6 5 4 3 2 ; do export SPARK_EXECUTOR_INSTANCES=$SPARK_EXECUTOR_INSTANCES ; ./TPCx-HS-master.sh -s -g 1 -q k8s -b s3a && mv TPCx-HS-result-100GB.log res-$mybackend-withvpe-hsgen-core${SPARK_EXECUTOR_CORES}-executor${SPARK_EXECUTOR_INSTANCES}-TPCx-HS-result-100GB.log; done

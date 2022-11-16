@@ -4,7 +4,10 @@ Compiling the source code
 By running the following command the source files are compiled to create the TPCx-HS-master_MR2.jar
 and the TPCx-HS-master_Spark.jar in the jars directory:
 * You may need to edit variable SPARK_CLASSPATH
-* You may need scala (2.10.7) to compile Spark application
+* You may need scala to compile Spark application
+* Update SPEC_VERSION in build.sh
+* Update version in TPCx-HS-SRC-Spark/build.sbt
+* Check scala version in TPCx-HS-SRC-Spark/build.sbt
 * ./compile.sh
 * When running Spark on DC/OS:
        - a fatjar is needed

@@ -38,7 +38,7 @@ ENV HADOOP_OPTIONAL_TOOLS "hadoop-aws"
 
 #######################
 # SPARK
-ENV SPARK_VERSION 3.3.0
+ENV SPARK_VERSION 3.3.1
 ENV SCALA_VER 2.12
 #----------------------- version to adjust
 ENV SPARK_PACKAGE spark-${SPARK_VERSION}-bin-without-hadoop
@@ -102,6 +102,7 @@ ENV SPARK_PRINT_LAUNCH_COMMAND 1
 WORKDIR ${SPARK_HOME}
 RUN cp kubernetes/dockerfiles/spark/entrypoint.sh /opt/. \
  && cp kubernetes/dockerfiles/spark/decom.sh /opt/.
+RUN echo "networkaddress.cache.ttl=30" >> ${JAVA_HOME}/conf/security/java.security
 
 WORKDIR ${SPARK_HOME}/examples/jars
 RUN curl -sL --retry 3 \

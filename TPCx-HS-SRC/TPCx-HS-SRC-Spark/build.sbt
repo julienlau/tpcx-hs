@@ -1,10 +1,11 @@
 name := "TPCx-HS-master_Spark"
 
-version := "2.2.0"
+version := "2.2.1"
 
-scalaVersion := "2.12.16"
-val sparkVersion = "3.3.0"
-val hadoopVersion = "3.3.3"
+//scalaVersion := "2.11.12"
+scalaVersion := "2.12.17"
+val sparkVersion = "3.3.1"
+val hadoopVersion = "3.3.4"
 
 libraryDependencies += "org.apache.spark" %% "spark-core" % sparkVersion % "provided" excludeAll(ExclusionRule(organization = "com.amazonaws"))
 libraryDependencies += "org.apache.spark" %% "spark-sql" % sparkVersion % "provided" excludeAll(ExclusionRule(organization = "com.amazonaws"))

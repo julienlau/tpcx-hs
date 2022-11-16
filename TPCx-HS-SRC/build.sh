@@ -48,7 +48,7 @@ STAGING_DIR=/tmp
 VERSION_FILE=../TPCx-HS-Runtime-Suite/VERSION.txt
 SPEC_DOC="../TPCx-HS Specification.docx"
 
-SPEC_VERSION=2.2.0
+SPEC_VERSION=2.2.1
 if [ -x /usr/bin/textutil ]; then
     SPEC_VERSION=`/usr/bin/textutil -convert txt -stdout "$SPEC_DOC" | fgrep Version | head -1 | cut -d' ' -f2`
 fi
@@ -62,6 +62,12 @@ echo "   NEW=`cat $VERSION_FILE`"
 echo "Spec Version: $SPEC_VERSION"
 [ "$SPEC_VERSION" != "$VERSION" ] && echo " *** WARNING: Spec and Kit version do not match! ***"
 echo
+
+if [[ "${SPEC_VERSION}" != "$(grep 'version :=' TPCx-HS-SRC-Spark/build.sbt | awk '{print $NF}' | tr -d '\"')" ]]; then
+    echo "ERROR version mismatch check TPCx-HS-SRC-Spark/build.sbt"
+    grep "version :=" TPCx-HS-SRC-Spark/build.sbt | awk '{print $NF}' | tr -d '"'
+    exit 2705
+fi
 
 [ -d "$STAGING_DIR/$ARCHIVE" ] && rm -r "$STAGING_DIR/$ARCHIVE"
 

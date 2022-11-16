@@ -37,15 +37,17 @@ mypath=${mypath%%/}
 
 if [[ "${STORAGE_BACKEND}" == "hdfs" ]]; then
     hdfs dfs ${hdfsopt} -ls $mypath/*
-    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0 ls"; exit 9; fi
     # NB this file is not created if spark.hadoop.mapreduce.fileoutputcommitter.marksuccessfuljobs=false
     hdfs dfs ${hdfsopt} -ls $mypath/_SUCCESS
     if [[ $? -ne 0 ]]; then echo "ERROR ! $0 file _SUCCESS not found"; exit 9; fi
 elif [[ "${STORAGE_BACKEND}" == "s3a" ]]; then
-    mc ls --recursive $mypath
-    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
-    mc ls $mypath/_SUCCESS
-    if [[ $? -ne 0 ]]; then echo "ERROR ! $0"; exit 9; fi
+    #mc ls --recursive $mypath
+    rclone ls $mypath
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0 ls"; exit 9; fi
+    #mc ls $mypath/_SUCCESS
+    rclone ls $mypath/_SUCCESS | grep _SUCCESS
+    if [[ $? -ne 0 ]]; then echo "ERROR ! $0 file _SUCCESS not found"; exit 9; fi
 else
     echo "$0 : STORAGE_BACKEND not supported ${STORAGE_BACKEND}"
     exit 9
